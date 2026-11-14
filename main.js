@@ -756,15 +756,20 @@ function findComfyInstallation() {
     inspected++;
     const root = item.root;
     try {
-      const nvidiaBat = path.join(root, 'run_nvidia_gpu.bat');
-      const cpuBat = path.join(root, 'run_cpu.bat');
-      const portablePython = path.join(root, 'python_embeded', 'python.exe');
-      const portableMain = path.join(root, 'ComfyUI', 'main.py');
-      if (fs.existsSync(nvidiaBat) || fs.existsSync(cpuBat) || (fs.existsSync(portablePython) && fs.existsSync(portableMain))) {
+      // Le dossier advanced contient parfois des scripts qui supposent que le cwd
+      // est la racine portable. Normaliser advanced vers son dossier parent.
+      const portableRoot = path.basename(root).toLowerCase() === 'advanced' ? path.dirname(root) : root;
+      const nvidiaBat = path.join(portableRoot, 'run_nvidia_gpu.bat');
+      const cpuBat = path.join(portableRoot, 'run_cpu.bat');
+      const advancedCpuBat = path.join(portableRoot, 'advanced', 'run_cpu.bat');
+      const portablePython = path.join(portableRoot, 'python_embeded', 'python.exe');
+      const portableMain = path.join(portableRoot, 'ComfyUI', 'main.py');
+      if ((fs.existsSync(portablePython) && fs.existsSync(portableMain)) ||
+          fs.existsSync(nvidiaBat) || fs.existsSync(cpuBat) || fs.existsSync(advancedCpuBat)) {
         return {
-          root,
-          bat: fs.existsSync(nvidiaBat) ? nvidiaBat : (fs.existsSync(cpuBat) ? cpuBat : null),
-          cpuBat: fs.existsSync(cpuBat) ? cpuBat : null,
+          root: portableRoot,
+          bat: fs.existsSync(nvidiaBat) ? nvidiaBat : null,
+          cpuBat: fs.existsSync(cpuBat) ? cpuBat : (fs.existsSync(advancedCpuBat) ? advancedCpuBat : null),
           python: portablePython,
           main: portableMain,
         };
@@ -787,12 +792,18 @@ function findComfyInstallation() {
 }
 
 function hasNvidiaGpu() {
-  try {
-    const result = spawnSync('nvidia-smi', ['-L'], { windowsHide: true, encoding: 'utf8', timeout: 5000 });
-    return result.status === 0 && /GPU/i.test(result.stdout || '');
-  } catch {
-    return false;
+  const candidates = [
+    'nvidia-smi',
+    path.join(process.env.ProgramFiles || 'C:\\Program Files', 'NVIDIA Corporation', 'NVSMI', 'nvidia-smi.exe'),
+    path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'nvidia-smi.exe'),
+  ];
+  for (const executable of candidates) {
+    try {
+      const result = spawnSync(executable, ['-L'], { windowsHide: true, encoding: 'utf8', timeout: 5000 });
+      if (result.status === 0 && /GPU/i.test(result.stdout || '')) return true;
+    } catch {}
   }
+  return false;
 }
 
 async function installComfyPortable() {
@@ -890,33 +901,23 @@ async function startComfyIfAvailable() {
   try {
     imageReport('Démarrage automatique de ComfyUI…');
     try {
-      logFd = fs.openSync(logFile, 'a');
+      logFd = fs.openSync(logFile, 'w');
       fs.writeSync(logFd, '\n\n===== Démarrage ComfyUI ' + new Date().toISOString() + ' =====\n');
     } catch (err) {
       imageReport('Impossible de créer le journal ComfyUI : ' + err.message);
     }
 
-    const launchBat = hasNvidiaGpu()
-      ? (installation.bat || installation.cpuBat)
-      : (installation.cpuBat || installation.bat);
-
-    if (launchBat) {
-      // Passer le chemin comme argument distinct : ne pas ajouter manuellement
-      // des guillemets, Node les échappe déjà pour Windows et cmd les interprète mal.
-      // Les scripts du dossier "advanced" utilisent le dossier portable parent comme cwd.
-      const launchCwd = path.basename(installation.root).toLowerCase() === 'advanced'
-        ? path.dirname(installation.root)
-        : installation.root;
-      child = spawn('cmd.exe', ['/d', '/c', 'call', launchBat], {
-        cwd: launchCwd,
-        detached: true,
-        stdio: ['ignore', logFd ?? 'ignore', logFd ?? 'ignore'],
-        windowsHide: true,
-      });
-    } else if (installation.python && installation.main) {
-      child = spawn(installation.python, [
-        installation.main, '--listen', '127.0.0.1', '--port', '8188',
-      ], {
+    // Lancer directement le Python portable évite les erreurs de guillemets
+    // et les chemins relatifs cassés dans advanced\\run_cpu.bat.
+    if (installation.python && installation.main &&
+        fs.existsSync(installation.python) && fs.existsSync(installation.main)) {
+      const gpuAvailable = hasNvidiaGpu();
+      const args = ['-s', installation.main, '--listen', '127.0.0.1', '--port', '8188', '--windows-standalone-build'];
+      if (!gpuAvailable) args.push('--cpu');
+      fs.writeSync(logFd, 'Racine ComfyUI : ' + installation.root + '\\n');
+      fs.writeSync(logFd, 'Python : ' + installation.python + '\\n');
+      fs.writeSync(logFd, 'GPU NVIDIA détecté : ' + gpuAvailable + '\\n');
+      child = spawn(installation.python, args, {
         cwd: installation.root,
         detached: true,
         stdio: ['ignore', logFd ?? 'ignore', logFd ?? 'ignore'],
