@@ -1211,35 +1211,50 @@ async function removeImageBackground(imagePath) {
     throw new Error(`Masque BiRefNet invalide : ${output.data.length} valeurs au lieu de ${planeSize}.`);
   }
 
-  const mask = Buffer.alloc(planeSize);
   const source = output.data;
   let minLogit = Infinity;
   let maxLogit = -Infinity;
+  const probabilities = new Float32Array(planeSize);
   for (let i = 0; i < planeSize; i++) {
     const logit = Number(source[i]);
     if (!Number.isFinite(logit)) throw new Error('Le modèle BiRefNet a produit un masque invalide.');
     if (logit < minLogit) minLogit = logit;
     if (logit > maxLogit) maxLogit = logit;
-    const probability = 1 / (1 + Math.exp(-Math.max(-30, Math.min(30, logit))));
-    // BiRefNet fournit une probabilité d'appartenance au premier plan.
-    // Une transition étroite autour de 0.5 évite de conserver le décor
-    // comme premier plan, tout en gardant un bord légèrement adouci.
-    const t = Math.max(0, Math.min(1, (probability - 0.46) / 0.10));
-    const alpha = t * t * (3 - 2 * t);
-    mask[i] = Math.round(alpha * 255);
+    probabilities[i] = 1 / (1 + Math.exp(-Math.max(-30, Math.min(30, logit))));
   }
   if (maxLogit - minLogit < 0.05) {
     throw new Error('Le masque BiRefNet est presque uniforme. Le détourage a été interrompu pour éviter un PNG avec fond opaque.');
   }
-  let foregroundPixels = 0;
-  for (let i = 0; i < mask.length; i++) {
-    if (mask[i] >= 128) foregroundPixels++;
+
+  // Transition douce autour d'un seuil : le bord reste légèrement adouci.
+  const buildMask = (center) => {
+    const built = Buffer.alloc(planeSize);
+    for (let i = 0; i < planeSize; i++) {
+      const t = Math.max(0, Math.min(1, (probabilities[i] - center) / 0.10));
+      built[i] = Math.round(t * t * (3 - 2 * t) * 255);
+    }
+    return built;
+  };
+  const foregroundShare = (built) => {
+    let count = 0;
+    for (let i = 0; i < built.length; i++) if (built[i] >= 128) count++;
+    return count / built.length;
+  };
+
+  // Sur une scène sans détourage net (ciel, décor continu), le modèle marque tout
+  // comme premier plan : le fond reste alors opaque. Dans ce cas on resserre le seuil
+  // pour ne garder que les zones les plus certaines comme sujet.
+  let mask = buildMask(0.46);
+  let foregroundPercent = foregroundShare(mask) * 100;
+  if (foregroundPercent > 90) {
+    imageReport('Masque trop large (décor continu détecté). Resserrement du seuil…');
+    mask = buildMask(0.85);
+    foregroundPercent = foregroundShare(mask) * 100;
+    if (foregroundPercent > 90) {
+      throw new Error('Le sujet ne se détache pas du décor (plus de 90 % de l’image détectée comme sujet). Essaie une image avec un sujet plus contrasté ou un fond uni.');
+    }
   }
-  const foregroundPercent = foregroundPixels / mask.length * 100;
   log(`BiRefNet : premier plan estimé à ${foregroundPercent.toFixed(1)} % de l’image (logits ${minLogit.toFixed(2)} à ${maxLogit.toFixed(2)}).`);
-  if (foregroundPercent > 99.5) {
-    imageReport('Masque trop large : le modèle ne distingue pas clairement le sujet du décor. Vérification du détourage…');
-  }
 
   imageReport('Application du masque de premier plan et création du PNG transparent…');
   const resizedMask = await sharp(mask, {
