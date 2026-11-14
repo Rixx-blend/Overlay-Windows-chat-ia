@@ -734,8 +734,15 @@ function updateImageSettingSummaries() {
 }
 [imageStyle, imageSteps].forEach((field) => field.addEventListener('change', updateImageSettingSummaries));
 imageFormat.addEventListener('change', updateImageSettingSummaries);
+// Les interactions restent dans leur pastille : le clic sur une liste native
+// ne doit pas être interprété comme un clic extérieur qui referme le popover.
+document.querySelectorAll('.image-setting-wrap, .image-popover').forEach((element) => {
+  element.addEventListener('pointerdown', (event) => event.stopPropagation());
+  element.addEventListener('click', (event) => event.stopPropagation());
+});
 document.querySelectorAll('[data-image-popover]').forEach((button) => {
   button.addEventListener('click', (event) => {
+    event.preventDefault();
     event.stopPropagation();
     const target = $('popover-' + button.dataset.imagePopover);
     const shouldOpen = target.hidden;
@@ -743,7 +750,7 @@ document.querySelectorAll('[data-image-popover]').forEach((button) => {
     target.hidden = !shouldOpen;
   });
 });
-document.addEventListener('click', (event) => {
+document.addEventListener('pointerdown', (event) => {
   if (!event.target.closest('.image-setting-wrap')) {
     document.querySelectorAll('.image-popover').forEach((popover) => { popover.hidden = true; });
   }
