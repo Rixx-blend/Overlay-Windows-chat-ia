@@ -120,6 +120,9 @@ function createWindow() {
   win.setAlwaysOnTop(true, 'screen-saver');
   win.setContentProtection(liveGlass);
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  win.webContents.on('console-message', (_e, level, message) => log(`renderer[${level}] ${message}`));
+  win.webContents.on('render-process-gone', (_e, d) => log(`renderer gone: ${d.reason}`));
+  win.webContents.on('did-fail-load', (_e, code, desc) => log(`chargement échoué: ${code} ${desc}`));
   win.setIgnoreMouseEvents(true, { forward: true });
 
   win.webContents.once('did-finish-load', () => {
@@ -452,12 +455,25 @@ function trackCursor() {
   const want = inside || dragOffset !== null;
   if (want !== interactive) {
     interactive = want;
+    log(`clics captés=${want} curseur=(${lx},${ly}) carte=${JSON.stringify(cardRect)}`);
     if (want) win.setIgnoreMouseEvents(false);
     else win.setIgnoreMouseEvents(true, { forward: true });
   }
   if (inside !== hoverState) {
     hoverState = inside;
     win.webContents.send('hover', inside);
+  }
+}
+
+// Journal de diagnostic : %APPDATA%\OverlayIA\debug.log
+function log(msg) {
+  try {
+    fs.appendFileSync(
+      path.join(app.getPath('userData'), 'debug.log'),
+      `${new Date().toISOString()} ${msg}\n`,
+    );
+  } catch {
+    /* journal facultatif */
   }
 }
 ipcMain.on('focus-me', () => {
@@ -578,6 +594,7 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 app.whenReady().then(() => {
+  log(`démarrage v${app.getVersion()} (empaqueté=${app.isPackaged})`);
   loadSettings();
   if (firstRun) saveSettings();
 
