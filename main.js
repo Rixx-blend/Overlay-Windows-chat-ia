@@ -51,6 +51,7 @@ const DEFAULTS = {
   level: 'low',
   autoUpdate: true,
   allowActions: true,
+  webSearch: false,
   setupDone: false,
 };
 
@@ -445,6 +446,28 @@ async function requestOllamaChat(messages, model, tokenLimit, send) {
   throw lastError || new Error("Échec de génération Ollama.");
 }
 
+// ---------- Recherche web (Brave Search API, clé dans BRAVE_SEARCH_API_KEY) ----------
+async function searchWeb(query) {
+  const key = process.env.BRAVE_SEARCH_API_KEY || '';
+  if (!key) throw new Error('clé BRAVE_SEARCH_API_KEY absente');
+  const url = 'https://api.search.brave.com/res/v1/web/search?count=5&q=' + encodeURIComponent(query.slice(0, 300));
+  const res = await fetch(url, { headers: { Accept: 'application/json', 'X-Subscription-Token': key } });
+  if (!res.ok) throw new Error(`recherche HTTP ${res.status}`);
+  const data = await res.json();
+  return (data.web?.results || []).slice(0, 5).map((r) => ({
+    title: String(r.title || '').replace(/<[^>]+>/g, ''),
+    url: String(r.url || ''),
+    description: String(r.description || '').replace(/<[^>]+>/g, ''),
+  }));
+}
+
+function lastUserText(messages) {
+  const last = [...messages].reverse().find((m) => m.role === 'user');
+  if (!last) return '';
+  if (typeof last.content === 'string') return last.content;
+  return last.content?.find?.((part) => part.type === 'text')?.text || '';
+}
+
 ipcMain.on('chat', async (e, payload) => {
   const { messages, engine, model, level, allowActions } = payload;
   const L = LEVELS[level] || LEVELS.low;
@@ -452,6 +475,26 @@ ipcMain.on('chat', async (e, payload) => {
 Tu fonctionnes localement. Ton modèle est Qwen 2.5 VL 3B, développé par Alibaba Cloud, exécuté localement par Ollama. Ne prétends jamais être un autre modèle et n'invente jamais de version.
 Réponds directement à la demande. Évite les répétitions et arrête-toi dès que la réponse est complète.`;
   if (allowActions) sys += ACTION_HINT;
+  // Recherche web : les résultats sont donnés au modèle avec des numéros, et la liste
+  // des sources est affichée sous la réponse.
+  let sourcesFooter = '';
+  if (payload.webSearch) {
+    const query = lastUserText(messages);
+    if (query) {
+      try {
+        const results = await searchWeb(query);
+        if (results.length) {
+          sys += `\n\nRésultats de recherche web à utiliser (cite-les avec [1], [2]… et précise quand une info vient de la recherche) :\n`
+            + results.map((r, i) => `[${i + 1}] ${r.title} — ${r.url}\n${r.description}`).join('\n');
+          sourcesFooter = '\n\nSources :\n' + results.map((r, i) => `[${i + 1}] ${r.title} — ${r.url}`).join('\n');
+        } else {
+          sys += '\n\nLa recherche web n\'a donné aucun résultat. Dis-le et réponds prudemment.';
+        }
+      } catch (err) {
+        sys += `\n\nLa recherche web a échoué (${err.message}). Dis-le à l'utilisateur et réponds prudemment, sans inventer de sources.`;
+      }
+    }
+  }
   const full = [{ role: 'system', content: sys }, ...messages];
   const send = (channel, value) => {
     if (!e.sender.isDestroyed()) e.sender.send(channel, value);
@@ -491,6 +534,7 @@ Réponds directement à la demande. Évite les répétitions et arrête-toi dès
       });
       if (answer) send('token', answer);
     }
+    if (sourcesFooter) send('token', sourcesFooter);
     send('done', null);
   } catch (err) {
     const down = /fetch failed/i.test(err.message) || err.cause?.code === 'ECONNREFUSED';

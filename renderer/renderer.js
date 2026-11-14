@@ -39,7 +39,7 @@ const TEXT_EXT = /\.(txt|md|csv|tsv|json|js|jsx|ts|tsx|py|html|css|xml|ya?ml|ini
 const ACTION_RE = /```(?:action|json)\s*([\s\S]*?)```/;
 const LEVEL_BARS = { low: 1, high: 2, max: 3 };
 
-let settings = { engine: 'ollama', model: 'qwen2.5vl:3b', level: 'low', autoUpdate: true, allowActions: true };
+let settings = { engine: 'ollama', model: 'qwen2.5vl:3b', level: 'low', autoUpdate: true, allowActions: true, webSearch: false };
 let messages = [];
 let pending = [];
 let current = null; // bulle de réponse en cours
@@ -440,6 +440,7 @@ function startAI() {
     model: settings.model,
     level: settings.level,
     allowActions: settings.allowActions,
+    webSearch: settings.webSearch,
   });
 }
 
@@ -674,6 +675,7 @@ async function refreshOllama() {
 function fillPanel() {
   $('autoUpd').checked = !!settings.autoUpdate;
   $('allowAct').checked = !!settings.allowActions;
+  $('webSearch').checked = !!settings.webSearch;
   refreshOllama();
   bridge.getVersion().then((v) => ($('version').textContent = v));
 }
@@ -1011,6 +1013,11 @@ $('autoUpd').addEventListener('change', (e) => {
 $('allowAct').addEventListener('change', (e) => {
   settings.allowActions = e.target.checked;
   bridge.setSettings({ allowActions: settings.allowActions });
+});
+
+$('webSearch').addEventListener('change', (e) => {
+  settings.webSearch = e.target.checked;
+  bridge.setSettings({ webSearch: settings.webSearch });
 });
 
 $('installAI').addEventListener('click', async () => {
