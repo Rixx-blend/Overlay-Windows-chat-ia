@@ -18,4 +18,6 @@ contextBridge.exposeInMainWorld('api', {
   onMode: (cb) => ipcRenderer.on('mode', (_e, live) => cb(live)),
   onSnapshot: (cb) => ipcRenderer.on('snapshot', () => cb()),
   onFpsToggle: (cb) => ipcRenderer.on('fps-toggle', () => cb()),
+  onCaptureStart: (cb) => ipcRenderer.on('capture-start', () => cb()),
+  onCaptureEnd: (cb) => ipcRenderer.on('capture-end', () => cb()),
 });

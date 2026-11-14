@@ -165,6 +165,7 @@
   let snapping = false;
   let liveW = 0, liveH = 0, hasLive = false;
   let snapW = 0, snapH = 0, hasSnap = false, snapVersion = 0;
+  let frozen = false; // pendant une capture : on garde le dernier fond propre
 
   // Compteurs d'images (affichés avec Ctrl+Alt+F)
   let vFrames = 0, rFrames = 0, lastStat = performance.now();
@@ -290,6 +291,15 @@
   });
   window.api.onGeometry((g) => (geo = g));
 
+  // Capture d'écran : le fond reste celui d'avant, puis repasse en live
+  window.api.onCaptureStart(() => {
+    frozen = true;
+  });
+  window.api.onCaptureEnd(async () => {
+    if (live) await waitFrames(8); // on attend des images propres (sans l'overlay)
+    frozen = false;
+  });
+
   // ---------- Rendu ----------
   let lastKey = '';
   let radius = 0;
@@ -312,7 +322,7 @@
     }
 
     let uploaded = false;
-    if (live && newFrame && video.readyState >= 2 && video.videoWidth) {
+    if (live && !frozen && newFrame && video.readyState >= 2 && video.videoWidth) {
       newFrame = false;
       gl.bindTexture(gl.TEXTURE_2D, liveTex);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);

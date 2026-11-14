@@ -15,10 +15,20 @@
   "build": {
     "appId": "com.rixx.overlayia",
     "productName": "OverlayIA",
-    "files": ["main.js", "preload.js", "renderer/**/*"],
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*"
+    ],
     "win": {
       "target": "portable",
       "signAndEditExecutable": false
-    }
+    },
+    "asarUnpack": [
+      "**/uiohook-napi/**"
+    ]
+  },
+  "dependencies": {
+    "uiohook-napi": "^1.5.0"
   }
 }

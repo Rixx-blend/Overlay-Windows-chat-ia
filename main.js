@@ -2,6 +2,15 @@ const { app, BrowserWindow, globalShortcut, ipcMain, screen, desktopCapturer, se
 const fs = require('fs');
 const path = require('path');
 
+// Surveillance globale du clavier et de la souris (Win+Maj+S, Impr écran)
+let uIOhook = null;
+let UiohookKey = null;
+try {
+  ({ uIOhook, UiohookKey } = require('uiohook-napi'));
+} catch (err) {
+  console.error('raccourcis de capture indisponibles :', err.message);
+}
+
 const API_URL = 'https://api.openai.com/v1/chat/completions';
 
 // Fenêtre de taille fixe (assez grande pour la carte ouverte) : aucun redimensionnement pendant l'animation
@@ -168,6 +177,7 @@ app.whenReady().then(() => {
   globalShortcut.register('Control+Alt+L', toggleLive);
   globalShortcut.register('Control+Alt+P', takeScreenshot);
   globalShortcut.register('Control+Alt+F', () => win && win.webContents.send('fps-toggle'));
+  setupHook();
 });
 
 app.on('window-all-closed', () => app.quit());
@@ -235,4 +245,57 @@ async function takeScreenshot() {
   } finally {
     if (wasLive && !win.isDestroyed()) win.setContentProtection(true);
   }
+}
+
+// ---------- Capture : Win+Maj+S et Impr écran ----------
+// Pendant la capture, l'overlay devient visible et le fond passe en figé ; il revient en live ensuite.
+let capturing = false;
+let snipActive = false;
+let captureTimer = null;
+
+function beginCapture(kind) {
+  if (!win || win.isDestroyed() || capturing) return;
+  capturing = true;
+  win.webContents.send('capture-start');
+  // Léger délai : le renderer a figé le fond avant que l'overlay n'apparaisse dans la capture
+  setTimeout(() => {
+    if (win && !win.isDestroyed()) win.setContentProtection(false);
+  }, 120);
+  if (kind === 'print') {
+    captureTimer = setTimeout(endCapture, 1500);
+  } else {
+    snipActive = true;
+    captureTimer = setTimeout(endCapture, 20000); // sécurité si la capture est annulée
+  }
+}
+
+function endCapture() {
+  if (!capturing) return;
+  capturing = false;
+  snipActive = false;
+  clearTimeout(captureTimer);
+  if (win && !win.isDestroyed()) {
+    win.setContentProtection(liveGlass);
+    win.webContents.send('capture-end');
+  }
+}
+
+function setupHook() {
+  if (!uIOhook || !UiohookKey) return;
+  uIOhook.on('keydown', (e) => {
+    if (e.keycode === UiohookKey.PrintScreen) {
+      beginCapture('print');
+    } else if (e.keycode === UiohookKey.S && e.metaKey && e.shiftKey) {
+      beginCapture('snip');
+    } else if (e.keycode === UiohookKey.Escape && snipActive) {
+      clearTimeout(captureTimer);
+      captureTimer = setTimeout(endCapture, 200);
+    }
+  });
+  uIOhook.on('mouseup', () => {
+    if (!snipActive) return;
+    clearTimeout(captureTimer);
+    captureTimer = setTimeout(endCapture, 500); // Windows enregistre la zone au relâchement
+  });
+  uIOhook.start();
 }
