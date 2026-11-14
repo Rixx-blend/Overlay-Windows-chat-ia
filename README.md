@@ -19,6 +19,19 @@ Chaque push sur `main` déclenche le workflow **Release** : il incrémente la ve
 - **Niveau de réflexion** : Bas (réponses courtes), Haut (détaillées), Max (analyse approfondie). Pour les modèles de raisonnement OpenAI, il règle aussi `reasoning_effort`.
 - **Actions sur le PC** : si activé, l'IA peut proposer une commande PowerShell. Rien n'est exécuté sans votre clic sur **Exécuter**.
 
+## Génération d'images locale (Stable Diffusion XL 1.0)
+
+L'onglet image de l'overlay utilise **ComfyUI en local** sur `http://127.0.0.1:8188`. Aucun prompt ni aucune image n'est envoyé à un service de génération distant.
+
+Prérequis :
+1. Installer ComfyUI pour Windows et le démarrer avec son serveur local actif.
+2. Télécharger le checkpoint officiel `sd_xl_base_1.0.safetensors` depuis [Stability AI sur Hugging Face](https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0) et le placer dans `ComfyUI/models/checkpoints`.
+3. Ouvrir l'onglet image dans OverlayIA puis cliquer sur **Actualiser**.
+
+Le générateur propose les prompts positif et négatif, les dimensions 512/768/1024, 20 à 40 étapes, l'aperçu et la sauvegarde automatique dans `Images/OverlayIA`. Le moteur doit rester lancé pendant la génération. Les performances dépendent du GPU et de sa mémoire vidéo.
+
+Téléchargements : [ComfyUI](https://github.com/comfyanonymous/ComfyUI) · [Checkpoint SDXL 1.0](https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0)
+
 ## Pièces jointes
 
 Images (analysées par le modèle), fichiers texte (inclus dans la conversation), autres fichiers (nom et type seulement). La dictée vocale utilise Whisper.
