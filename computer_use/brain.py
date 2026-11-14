@@ -12,12 +12,12 @@ Actions permises :
 - scroll : x, y et amount (positif = haut, négatif = bas).
 - wait : seconds entre 0.2 et 5.
 - open_app : app contient le nom d'une application installée à lancer.
-- find_latest_file : folder vaut Downloads, Desktop, Documents ou Pictures ; extension vaut par exemple .png.
+- find_latest_file : folder vaut Downloads/Téléchargements, Desktop/Bureau, Documents ou Pictures/Images ; extension vaut par exemple .png.
 - open_file : path contient le chemin exact d'un fichier trouvé.
 - done : tâche terminée ou impossible, explique brièvement dans thought.
 Règles :
 1. Si l'utilisateur demande d'ouvrir une application, utilise open_app. Ne cherche jamais son nom dans l'Explorateur ni dans « Ce PC ».
-2. Si l'utilisateur demande le dernier PNG dans Téléchargements, utilise find_latest_file avec folder=Downloads et extension=.png.
+2. Si l'utilisateur demande le dernier PNG dans Téléchargements, utilise find_latest_file avec folder=Téléchargements et extension=.png ; l'exécuteur accepte aussi Downloads.
 3. Pour ouvrir ce fichier dans une application spécifique, lance d'abord l'application puis utilise hotkey ctrl+o, type avec le chemin retourné, et hotkey enter. open_file ouvre avec l'application par défaut.
 4. Pour Blender et le cube par défaut, lance Blender, attends le chargement, observe la vue 3D, puis sélectionne le cube. La suppression est soumise à une confirmation explicite préalable.
 5. Si un fichier doit être ouvert dans une application déjà lancée, utilise hotkey avec [\"ctrl\",\"o\"], puis type avec son chemin exact, puis hotkey avec [\"enter\"]. N'utilise open_file que pour ouvrir avec l'application par défaut.
