@@ -724,6 +724,30 @@ async function getImageStatus() {
   }
 }
 
+function getComfyCheckpointDirectories() {
+  const home = os.homedir();
+  const roots = [
+    path.join(home, 'ComfyUI_windows_portable', 'ComfyUI'),
+    path.join(home, 'ComfyUI', 'ComfyUI'),
+    path.join(home, 'ComfyUI'),
+    path.join(process.env.LOCALAPPDATA || home, 'Programs', 'ComfyUI', 'ComfyUI'),
+    path.join(process.env.ProgramFiles || 'C:\\Program Files', 'ComfyUI', 'ComfyUI'),
+    'C:\\ComfyUI\\ComfyUI',
+    'D:\\ComfyUI_windows_portable\\ComfyUI',
+    'D:\\ComfyUI\\ComfyUI',
+  ];
+  const directories = [];
+  if (settings.sdxlCheckpointDir) directories.push(settings.sdxlCheckpointDir);
+  for (const root of roots) directories.push(path.join(root, 'models', 'checkpoints'));
+  return [...new Set(directories.map((directory) => path.resolve(directory)))];
+}
+
+function findComfyCheckpointDirectory() {
+  return getComfyCheckpointDirectories().find((directory) =>
+    fs.existsSync(path.join(directory, SDXL_CHECKPOINT))
+  ) || getComfyCheckpointDirectories().find((directory) => fs.existsSync(path.dirname(path.dirname(directory))));
+}
+
 async function getStartupModelsStatus() {
   let tags = await ollamaTags();
   if (!tags && findOllama()) {
@@ -734,12 +758,11 @@ async function getStartupModelsStatus() {
   const installedNames = (tags?.models || []).map((model) => model.name);
   const qwenInstalled = installedNames.includes(OLLAMA_MODEL) || installedNames.includes(OLLAMA_MODEL + ':latest');
   const imageStatus = await getImageStatus();
-  const savedCheckpoint = settings.sdxlCheckpointDir
-    ? path.join(settings.sdxlCheckpointDir, SDXL_CHECKPOINT)
-    : null;
+  const checkpointDirectory = findComfyCheckpointDirectory();
+  const checkpointPath = checkpointDirectory ? path.join(checkpointDirectory, SDXL_CHECKPOINT) : null;
   const sdxlInstalled = imageStatus.running
     ? imageStatus.installed
-    : !!(savedCheckpoint && fs.existsSync(savedCheckpoint) && fs.statSync(savedCheckpoint).size > 6_000_000_000);
+    : !!(checkpointPath && fs.existsSync(checkpointPath) && fs.statSync(checkpointPath).size > 6_000_000_000);
 
   return {
     qwenInstalled,
@@ -753,18 +776,9 @@ async function getStartupModelsStatus() {
 }
 
 async function downloadSdxlModel() {
-  const choice = await dialog.showOpenDialog(win, {
-    title: 'Choisir le dossier ComfyUI\\models\\checkpoints',
-    message: 'Sélectionne le dossier checkpoints de ComfyUI. Le modèle SDXL pèse environ 6,94 Go.',
-    properties: ['openDirectory', 'createDirectory'],
-  });
-  if (choice.canceled || !choice.filePaths?.[0]) return { cancelled: true };
-
-  const directory = choice.filePaths[0];
-  const normalizedDirectory = path.resolve(directory).split(path.sep).join('/').toLowerCase();
-  if (!normalizedDirectory.endsWith('/models/checkpoints')) {
-    throw new Error('Sélection incorrecte. Choisis exactement le dossier ComfyUI/models/checkpoints.');
-  }
+  const directory = findComfyCheckpointDirectory()
+    || path.join(os.homedir(), 'ComfyUI_windows_portable', 'ComfyUI', 'models', 'checkpoints');
+  fs.mkdirSync(directory, { recursive: true });
   fs.mkdirSync(directory, { recursive: true });
   const destination = path.join(directory, SDXL_CHECKPOINT);
   if (fs.existsSync(destination) && fs.statSync(destination).size > 6_000_000_000) {
