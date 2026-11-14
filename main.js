@@ -3,22 +3,26 @@ const path = require('path');
 
 const API_URL = 'https://api.openai.com/v1/chat/completions';
 
-// Marge autour de la carte : laisse la place à l'ombre et à la réfraction
-const PAD = 36;
-const BASE_W = 552;
-const BASE_H = 138;
+// Fenêtre de taille fixe, assez grande pour la carte en état ouvert.
+// Pas de redimensionnement pendant l'animation : plus de lag, la transparence laisse passer les clics.
+const WIN_W = 620;
+const WIN_H = 580;
+
+// Le fond est flouté de toute façon : on le capture à demi-résolution (beaucoup plus rapide)
+const CAPTURE_SCALE = 0.5;
 
 let win = null;
 let capturing = false;
 let queued = false;
+let dragOffset = null;
 
 function createWindow() {
   const { workArea } = screen.getPrimaryDisplay();
   win = new BrowserWindow({
-    width: BASE_W,
-    height: BASE_H,
-    x: Math.round(workArea.x + (workArea.width - BASE_W) / 2),
-    y: Math.round(workArea.y + workArea.height * 0.25),
+    width: WIN_W,
+    height: WIN_H,
+    x: Math.round(workArea.x + (workArea.width - WIN_W) / 2),
+    y: Math.round(workArea.y + workArea.height * 0.2),
     frame: false,
     transparent: true,
     resizable: false,
@@ -41,12 +45,10 @@ function createWindow() {
 
   win.webContents.once('did-finish-load', scheduleCapture);
   win.on('move', scheduleCapture);
-  win.on('resize', scheduleCapture);
   win.on('show', scheduleCapture);
-  // Rafraîchit le fond régulièrement (contenu animé derrière la fenêtre)
   setInterval(() => {
     if (win && win.isVisible()) scheduleCapture();
-  }, 800);
+  }, 1000);
 }
 
 // Une seule capture à la fois ; si une demande arrive pendant, on en relance une
@@ -71,7 +73,7 @@ async function capture() {
   if (!win || win.isDestroyed() || !win.isVisible()) return;
   const b = win.getBounds();
   const display = screen.getDisplayMatching(b);
-  const s = display.scaleFactor;
+  const s = display.scaleFactor * CAPTURE_SCALE;
 
   const sources = await desktopCapturer.getSources({
     types: ['screen'],
@@ -88,25 +90,31 @@ async function capture() {
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   const x = clamp(Math.round((b.x - display.bounds.x) * s), 0, fs.width - 1);
   const y = clamp(Math.round((b.y - display.bounds.y) * s), 0, fs.height - 1);
-  const w = Math.min(Math.round(b.width * s), fs.width - x);
-  const h = Math.min(Math.round(b.height * s), fs.height - y);
+  const w = Math.max(1, Math.min(Math.round(b.width * s), fs.width - x));
+  const h = Math.max(1, Math.min(Math.round(b.height * s), fs.height - y));
 
-  const crop = full.crop({ x, y, width: w, height: h });
-  win.webContents.send('backdrop', crop.toDataURL());
+  // JPEG : bien plus rapide à encoder/décoder que le PNG
+  const jpeg = full.crop({ x, y, width: w, height: h }).toJPEG(75);
+  if (!win.isDestroyed()) {
+    win.webContents.send('backdrop', 'data:image/jpeg;base64,' + jpeg.toString('base64'));
+  }
 }
 
-// Le renderer demande la taille de la carte ; la fenêtre suit en restant centrée
-ipcMain.on('resize', (_e, { w, h }) => {
+// Déplacement de la fenêtre : on suit la position du curseur côté système (fluide, sans lag)
+ipcMain.on('drag-start', () => {
   if (!win) return;
-  const W = Math.min(Math.max(Math.round(w), 100), 900);
-  const H = Math.min(Math.max(Math.round(h), 60), 700);
-  const b = win.getBounds();
-  win.setBounds({
-    x: b.x + Math.round((b.width - W) / 2),
-    y: b.y,
-    width: W,
-    height: H,
-  });
+  const [x, y] = win.getPosition();
+  const p = screen.getCursorScreenPoint();
+  dragOffset = { x: p.x - x, y: p.y - y };
+});
+ipcMain.on('drag-move', () => {
+  if (!win || !dragOffset) return;
+  const p = screen.getCursorScreenPoint();
+  win.setPosition(p.x - dragOffset.x, p.y - dragOffset.y);
+});
+ipcMain.on('drag-end', () => {
+  dragOffset = null;
+  scheduleCapture();
 });
 
 ipcMain.on('mouse-in', () => win && win.setIgnoreMouseEvents(false));

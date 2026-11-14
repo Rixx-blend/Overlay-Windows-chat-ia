@@ -1,5 +1,3 @@
-const PAD = 36; // doit correspondre à .stage { padding } dans styles.css
-
 const card = document.getElementById('card');
 const chat = document.getElementById('chat');
 const input = document.getElementById('input');
@@ -75,14 +73,38 @@ window.api.onDone((err) => {
 
 window.api.onFocus(() => input.focus());
 
-// Taille de la fenêtre = carte + marge, suivie en continu pendant l'animation
-new ResizeObserver(() => {
-  const r = card.getBoundingClientRect();
-  window.api.resize(Math.ceil(r.width) + PAD * 2, Math.ceil(r.height) + PAD * 2);
-}).observe(card);
+// ---------- Déplacement : glisser n'importe où sur la carte (sauf texte et boutons) ----------
+let dragging = false;
+let dragQueued = false;
 
-// La fenêtre laisse passer les clics hors de la carte
+card.addEventListener('pointerdown', (e) => {
+  if (e.button !== 0) return;
+  if (e.target.closest('input, button, select, .chat')) return;
+  dragging = true;
+  window.api.mouseIn();
+  window.api.dragStart();
+});
+
+window.addEventListener('pointermove', () => {
+  if (!dragging || dragQueued) return;
+  dragQueued = true;
+  requestAnimationFrame(() => {
+    dragQueued = false;
+    window.api.dragMove();
+  });
+});
+
+window.addEventListener('pointerup', () => {
+  if (!dragging) return;
+  dragging = false;
+  window.api.dragEnd();
+  if (!card.matches(':hover')) window.api.mouseOut();
+});
+
+// La fenêtre laisse passer les clics hors de la carte (sauf pendant un glissement)
 card.addEventListener('pointerenter', () => window.api.mouseIn());
-card.addEventListener('pointerleave', () => window.api.mouseOut());
+card.addEventListener('pointerleave', () => {
+  if (!dragging) window.api.mouseOut();
+});
 
 input.focus();
