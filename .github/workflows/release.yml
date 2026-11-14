@@ -3,11 +3,10 @@ on:
   push:
     branches: [main]
 
-# Empêche plusieurs publications simultanées du même numéro de version.
-# Une nouvelle modification de main annule une compilation devenue obsolète.
+# Une compilation active termine sa publication. GitHub garde ensuite la dernière demande en attente.
 concurrency:
   group: overlayia-release-main
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -42,7 +41,8 @@ jobs:
           node --check renderer/glass.js
 
       - name: Installer les dépendances
-        run: npm install
+        shell: bash
+        run: npm install --no-audit --no-fund --legacy-peer-deps
 
       - name: Construire l'installateur et publier la version
         env:
