@@ -617,11 +617,86 @@ imagesBtn.addEventListener('click', openImagePanel);
 closeImages.addEventListener('click', closeImagePanel);
 $('checkSdxl').addEventListener('click', refreshSdxlStatus);
 
+// Grille de pixels animée pendant la génération, puis transition colorée vers l'image.
+function buildImagePixelGrid() {
+  const reveal = $('imageReveal');
+  const grid = $('imagePixelGrid');
+  const width = Math.max(1, reveal.clientWidth || 500);
+  const height = Math.max(1, reveal.clientHeight || 190);
+  const cellSize = 16;
+  const cols = Math.ceil(width / cellSize);
+  const rows = Math.ceil(height / cellSize);
+  grid.replaceChildren();
+  grid.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
+  grid.style.gridTemplateRows = `repeat(${rows}, minmax(0, 1fr))`;
+  for (let i = 0; i < cols * rows; i++) {
+    const cell = document.createElement('span');
+    cell.className = 'image-pixel';
+    cell.style.setProperty('--blink-delay', `${Math.random() * 1.4}s`);
+    cell.style.setProperty('--fade-delay', `${Math.random() * 0.45}s`);
+    grid.appendChild(cell);
+  }
+  return { cols, rows };
+}
+
+function startImagePixelLoader() {
+  const reveal = $('imageReveal');
+  const img = $('generatedImage');
+  $('imageResult').hidden = false;
+  img.removeAttribute('src');
+  reveal.classList.remove('image-visible', 'image-revealing');
+  reveal.classList.add('image-generating');
+  buildImagePixelGrid();
+}
+
+function revealGeneratedImage(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const reveal = $('imageReveal');
+    const img = $('generatedImage');
+    const grid = $('imagePixelGrid');
+    const dimensions = buildImagePixelGrid();
+
+    const finish = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = dimensions.cols;
+        canvas.height = dimensions.rows;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        if (!ctx) throw new Error('Canvas indisponible');
+        ctx.drawImage(img, 0, 0, dimensions.cols, dimensions.rows);
+        const pixels = ctx.getImageData(0, 0, dimensions.cols, dimensions.rows).data;
+        [...grid.children].forEach((cell, index) => {
+          const offset = index * 4;
+          cell.style.backgroundColor = `rgb(${pixels[offset]}, ${pixels[offset + 1]}, ${pixels[offset + 2]})`;
+        });
+        reveal.classList.remove('image-generating');
+        reveal.classList.add('image-revealing');
+        requestAnimationFrame(() => {
+          setTimeout(() => reveal.classList.add('image-visible'), 420);
+          setTimeout(() => {
+            grid.replaceChildren();
+            reveal.classList.remove('image-revealing');
+            resolve();
+          }, 1450);
+        });
+      } catch (err) {
+        reveal.classList.remove('image-generating', 'image-revealing');
+        reveal.classList.add('image-visible');
+        resolve();
+      }
+    };
+
+    img.onload = finish;
+    img.onerror = () => reject(new Error("Impossible d'afficher l'image générée."));
+    img.src = dataUrl;
+    if (img.complete && img.naturalWidth > 0) finish();
+  });
+}
+
 $('generateImage').addEventListener('click', async () => {
   const button = $('generateImage');
-  const result = $('imageResult');
   button.disabled = true;
-  result.hidden = true;
+  startImagePixelLoader();
   $('imageProgress').textContent = 'Préparation…';
   try {
     const generated = await bridge.generateImage({
@@ -631,11 +706,13 @@ $('generateImage').addEventListener('click', async () => {
       height: Number($('imageHeight').value),
       steps: Number($('imageSteps').value),
     });
-    $('generatedImage').src = generated.dataUrl;
+    await revealGeneratedImage(generated.dataUrl);
     $('imageSavedPath').textContent = 'Enregistrée dans Images/OverlayIA';
-    result.hidden = false;
     $('imageProgress').textContent = 'Génération terminée.';
   } catch (err) {
+    $('imageReveal').classList.remove('image-generating', 'image-revealing', 'image-visible');
+    $('imagePixelGrid').replaceChildren();
+    $('imageResult').hidden = true;
     $('imageProgress').textContent = 'Erreur : ' + err.message;
     refreshSdxlStatus();
   } finally {
@@ -751,15 +828,10 @@ function showSetupPrompt(status) {
         ? 'Les fichiers SDXL sont présents, mais ComfyUI ne répond pas sur le port 8188. Démarre ComfyUI pour générer des images.'
         : 'ComfyUI ne répond pas sur le port 8188. S’il est déjà installé, démarre-le après le téléchargement du checkpoint.')
       : 'ComfyUI détecté.';
-    if (!s.needsSetup && s.comfyRunning) {
-      label.textContent = 'Les deux modèles sont installés.';
-      prog.textContent = 'Configuration locale prête.';
-      setTimeout(() => {
-        box.remove();
-        setupLine = null;
-      }, 1200);
-    } else if (!s.needsSetup) {
-      label.textContent = 'Les deux modèles sont présents.';
+    if (!s.needsSetup) {
+      box.remove();
+      if (setupLine === prog) setupLine = null;
+      return;
     }
   };
   update(status);
@@ -859,7 +931,7 @@ bridge.onFocus(() => {
   // IA locale déjà installée : rien à faire. Sinon, on propose l'installation.
   try {
     const s = await bridge.startupModelsStatus();
-    if (s.needsSetup || !s.comfyRunning) showSetupPrompt(s);
+    if (s.needsSetup) showSetupPrompt(s);
   } catch {
     showSetupPrompt({ qwenInstalled: false, sdxlInstalled: false, comfyRunning: false, needsSetup: true });
   }
