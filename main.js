@@ -1221,17 +1221,27 @@ async function removeImageBackground(imagePath) {
     if (logit < minLogit) minLogit = logit;
     if (logit > maxLogit) maxLogit = logit;
     const probability = 1 / (1 + Math.exp(-Math.max(-30, Math.min(30, logit))));
-    // Léger renforcement du contraste du masque : fond plus transparent,
-    // sujet plus opaque, avec une transition douce pour conserver les cheveux.
-    const t = Math.max(0, Math.min(1, (probability - 0.35) / 0.30));
+    // BiRefNet fournit une probabilité d'appartenance au premier plan.
+    // Une transition étroite autour de 0.5 évite de conserver le décor
+    // comme premier plan, tout en gardant un bord légèrement adouci.
+    const t = Math.max(0, Math.min(1, (probability - 0.46) / 0.10));
     const alpha = t * t * (3 - 2 * t);
     mask[i] = Math.round(alpha * 255);
   }
   if (maxLogit - minLogit < 0.05) {
     throw new Error('Le masque BiRefNet est presque uniforme. Le détourage a été interrompu pour éviter un PNG avec fond opaque.');
   }
+  let foregroundPixels = 0;
+  for (let i = 0; i < mask.length; i++) {
+    if (mask[i] >= 128) foregroundPixels++;
+  }
+  const foregroundPercent = foregroundPixels / mask.length * 100;
+  log(`BiRefNet : premier plan estimé à ${foregroundPercent.toFixed(1)} % de l’image (logits ${minLogit.toFixed(2)} à ${maxLogit.toFixed(2)}).`);
+  if (foregroundPercent > 99.5) {
+    imageReport('Masque trop large : le modèle ne distingue pas clairement le sujet du décor. Vérification du détourage…');
+  }
 
-  imageReport('Affinage des contours et création du PNG transparent…');
+  imageReport('Application du masque de premier plan et création du PNG transparent…');
   const resizedMask = await sharp(mask, {
     raw: { width: RMBG_INPUT_SIZE, height: RMBG_INPUT_SIZE, channels: 1 },
   }).resize(metadata.width, metadata.height, { fit: 'fill', kernel: 'lanczos3' }).png().toBuffer();
