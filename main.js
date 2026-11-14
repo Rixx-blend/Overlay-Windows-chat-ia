@@ -106,7 +106,7 @@ function createWindow() {
     frame: false,
     transparent: true,
     resizable: false,
-    skipTaskbar: true,
+    skipTaskbar: false,
     alwaysOnTop: true,
     hasShadow: false,
     webPreferences: {
@@ -563,6 +563,18 @@ function setupHook() {
     captureTimer = setTimeout(endCapture, 500);
   });
   uIOhook.start();
+}
+
+// Une seule instance : relancer l'appli (ou cliquer sur l'icône épinglée) réaffiche l'overlay
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (!win || win.isDestroyed()) return;
+    win.show();
+    win.focus();
+    win.webContents.send('focus-input');
+  });
 }
 
 app.whenReady().then(() => {

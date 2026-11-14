@@ -37,6 +37,8 @@ html, body {
    Les coins changent SANS transition : l'arrondi suit tout de suite. La taille, elle, glisse vite. */
 .card {
   position: relative;
+  /* Fond quasi invisible : Windows ne reçoit les clics que sur les pixels non transparents */
+  background: rgba(255, 255, 255, 0.01);
   width: 480px;
   padding: 10px 10px 10px 22px;
   border-radius: 999px;
