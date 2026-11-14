@@ -9,7 +9,7 @@ const WIN_W = 620;
 const WIN_H = 580;
 
 // Le fond est flouté de toute façon : on le capture à demi-résolution (beaucoup plus rapide)
-const CAPTURE_SCALE = 0.5;
+const CAPTURE_SCALE = 0.4;
 
 let win = null;
 let capturing = false;
@@ -48,7 +48,7 @@ function createWindow() {
   win.on('show', scheduleCapture);
   setInterval(() => {
     if (win && win.isVisible()) scheduleCapture();
-  }, 1000);
+  }, 4000);
 }
 
 // Une seule capture à la fois ; si une demande arrive pendant, on en relance une

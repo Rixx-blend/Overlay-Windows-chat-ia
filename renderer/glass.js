@@ -1,6 +1,5 @@
 // Verre liquide : le shader déforme le fond du bureau capturé derrière la fenêtre.
-// Principe (comme WPF-Liquid-Glass-Effect) : capture du bureau -> shader de pixels
-// (lentille + dispersion + flou + reflets) -> rendu dans la fenêtre transparente.
+// Ne redessine que si la carte ou le fond change (économie de GPU et de RAM).
 (function () {
   const canvas = document.getElementById('glass');
   const card = document.getElementById('card');
@@ -140,15 +139,21 @@
   gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
 
   let hasBackdrop = false;
+  let backdropVersion = 0;
   window.api.onBackdrop((dataUrl) => {
     const img = new Image();
     img.onload = () => {
       gl.bindTexture(gl.TEXTURE_2D, tex);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
       hasBackdrop = true;
+      backdropVersion++;
     };
     img.src = dataUrl;
   });
+
+  let lastKey = '';
+  let radius = 0;
+  let radiusKey = '';
 
   function frame() {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -158,13 +163,21 @@
       canvas.width = W;
       canvas.height = H;
     }
-    gl.viewport(0, 0, W, H);
-    gl.clearColor(0, 0, 0, 0);
-    gl.clear(gl.COLOR_BUFFER_BIT);
 
-    if (hasBackdrop) {
-      const r = card.getBoundingClientRect();
-      const radius = parseFloat(getComputedStyle(card).borderTopLeftRadius) || 0;
+    const r = card.getBoundingClientRect();
+    const cs = getComputedStyle(card).borderTopLeftRadius;
+    if (cs !== radiusKey) {
+      radiusKey = cs;
+      radius = parseFloat(cs) || 0;
+    }
+
+    // Ne redessine que si quelque chose a changé
+    const key = [W, H, r.left, r.top, r.width, r.height, radius, backdropVersion].join(',');
+    if (hasBackdrop && key !== lastKey) {
+      lastKey = key;
+      gl.viewport(0, 0, W, H);
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
       gl.uniform2f(U.u_res, W, H);
       gl.uniform4f(U.u_rect, r.left * dpr, r.top * dpr, r.width * dpr, r.height * dpr);
       gl.uniform1f(U.u_radius, radius * dpr);
