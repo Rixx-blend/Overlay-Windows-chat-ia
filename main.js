@@ -53,6 +53,7 @@ let win = null;
 let liveGlass = true; // true : verre live, overlay masqué des captures ; false : fond figé, overlay visible
 let settings = { ...DEFAULTS };
 let firstRun = false;
+let lastGeneratedImage = null;
 let dragOffset = null;
 let capturing = false;
 let snipActive = false;
@@ -745,12 +746,18 @@ async function generateLocalImage(options) {
   const safeName = 'SDXL-' + new Date().toISOString().replace(/[:.]/g, '-') + '.png';
   const outputPath = path.join(outputDir, safeName);
   fs.writeFileSync(outputPath, buffer);
+  lastGeneratedImage = outputPath;
   imageReport('Image générée et enregistrée.');
   return { ok: true, path: outputPath, dataUrl: 'data:image/png;base64,' + buffer.toString('base64') };
 }
 
 ipcMain.handle('image-status', () => getImageStatus());
 ipcMain.handle('generate-image', (_e, options) => generateLocalImage(options));
+ipcMain.handle('open-generated-image', async () => {
+  if (!lastGeneratedImage || !fs.existsSync(lastGeneratedImage)) return { ok: false, message: 'Aucune image générée dans cette session.' };
+  const error = await shell.openPath(lastGeneratedImage);
+  return { ok: !error, message: error || 'Image ouverte.' };
+});
 ipcMain.handle('check-update', () => checkForUpdates());
 ipcMain.handle('get-version', () => app.getVersion());
 ipcMain.on('install-update', () => autoUpdater.quitAndInstall());
