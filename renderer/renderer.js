@@ -810,24 +810,32 @@ async function generateImageInChat(prompt, referenceImages = []) {
     caption.textContent = 'Image générée avec SDXL · enregistrée dans Images/OverlayIA';
     const actions = document.createElement('div');
     actions.className = 'generated-actions';
-    const makeAction = (label, handler, disabled = false) => {
+    const actionIcons = {
+      download: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5"/><path d="M5 17v3h14v-3"/></svg>',
+      copy: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg>',
+      edit: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 5 5 5M4 20l4.5-1 10.8-10.8a2.1 2.1 0 0 0-3-3L5.5 16 4 20Z"/></svg>',
+      removeBg: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4z"/><path d="m4 4 16 16M12 4v16M4 12h16"/></svg>'
+    };
+    const makeAction = (label, icon, handler, disabled = false) => {
       const button = document.createElement('button');
       button.className = 'generated-action-btn';
       button.type = 'button';
-      button.textContent = label;
+      button.setAttribute('aria-label', label);
+      button.title = label;
+      button.innerHTML = icon + '<span>' + label + '</span>';
       button.disabled = disabled;
       button.addEventListener('click', handler);
       actions.appendChild(button);
     };
-    makeAction('Télécharger', async () => {
+    makeAction('Télécharger', actionIcons.download, async () => {
       const result = await bridge.saveGeneratedImage(generatedPath);
       if (!result?.ok && result?.message) flash(result.message);
     }, !generatedPath);
-    makeAction('Copier', async () => {
+    makeAction('Copier', actionIcons.copy, async () => {
       const result = await bridge.copyGeneratedImage(generatedPath);
       flash(result?.ok ? 'Image copiée' : (result?.message || 'Copie impossible'));
     }, !generatedPath);
-    makeAction('Modifier', () => {
+    makeAction('Modifier', actionIcons.edit, () => {
       references = [{ name: 'Image à modifier', kind: 'image', url: generatedDataUrl }];
       renderReferences();
       setImageMode(true);
@@ -835,7 +843,7 @@ async function generateImageInChat(prompt, referenceImages = []) {
       input.placeholder = 'Décris les modifications à apporter…';
       input.focus();
     });
-    makeAction('Supprimer le fond', () => {
+    makeAction('Supprimer le fond', actionIcons.removeBg, () => {
       if (generatedPath) removeBackgroundInChat(generatedPath);
     }, !generatedPath);
     current.replaceChildren(image, caption, actions);
