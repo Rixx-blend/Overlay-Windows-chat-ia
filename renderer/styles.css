@@ -758,14 +758,27 @@ input::placeholder { color: rgba(30, 30, 36, 0.78); font-weight: 500; }
 .msg.ai ul, .msg.ai ol { margin: 4px 0 6px; padding-left: 20px; }
 .msg.ai .md-h { font-weight: 700; margin: 6px 0 4px; }
 
-/* Sources repliées sous la réponse */
-details.sources { margin-top: 8px; border-top: 1px solid rgba(0,0,0,.1); padding-top: 6px; font-size: 12px; }
-details.sources > summary { cursor: pointer; opacity: .7; user-select: none; }
+/* Sources repliées sous la réponse : bloc arrondi, seulement les liens */
+details.sources {
+  margin-top: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  border-radius: 12px;
+  background: rgba(255,255,255,.22);
+  border: 1px solid rgba(255,255,255,.35);
+}
+details.sources > summary { cursor: pointer; opacity: .75; user-select: none; }
 details.sources > summary:hover { opacity: 1; }
-.source-item { margin: 6px 0 2px; }
-.source-title { font-weight: 600; }
-.source-item a { color: inherit; opacity: .75; text-decoration: underline; word-break: break-all; }
-.source-desc { opacity: .75; margin-top: 2px; }
+details.sources .source-link {
+  display: block;
+  margin: 5px 0 1px;
+  color: inherit;
+  opacity: .85;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  word-break: break-all;
+}
+details.sources .source-link:hover { opacity: 1; }
 
 /* Barre de défilement dans le style verre : fine, sans flèches, transparente */
 .chat, .panel, .reference-previews {

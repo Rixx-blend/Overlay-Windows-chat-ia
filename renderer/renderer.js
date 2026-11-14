@@ -498,23 +498,16 @@ function addSourcesBlock(bubble, sources) {
   summary.textContent = `Sources (${sources.length})`;
   details.appendChild(summary);
   sources.forEach((s, i) => {
-    const item = document.createElement('div');
-    item.className = 'source-item';
-    const title = document.createElement('div');
-    title.className = 'source-title';
-    title.textContent = `[${i + 1}] ${s.title || s.url}`;
     const link = document.createElement('a');
+    link.className = 'source-link';
     link.href = '#';
-    link.textContent = s.url.replace(/^https?:\/\//, '').split('/')[0];
+    link.title = s.title || s.url;
+    link.textContent = `[${i + 1}] ${s.url.replace(/^https?:\/\//, '').split('/')[0].replace(/^www\./, '')}`;
     link.addEventListener('click', (e) => {
       e.preventDefault();
       bridge.openLink(s.url);
     });
-    const desc = document.createElement('div');
-    desc.className = 'source-desc';
-    desc.textContent = s.description || '';
-    item.append(title, link, desc);
-    details.appendChild(item);
+    details.appendChild(link);
   });
   bubble.appendChild(details);
 }
