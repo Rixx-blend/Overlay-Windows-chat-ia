@@ -67,7 +67,7 @@ function createComputerUse({ desktopCapturer, screen, execFile, clipboard, getWi
     if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0 || x >= display.size.width || y >= display.size.height) throw new Error('Coordonnées hors écran.');
     const command = type === 'click'
       ? "Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class CU { [DllImport(\"user32.dll\")] public static extern bool SetCursorPos(int x,int y); [DllImport(\"user32.dll\")] public static extern void mouse_event(uint f,uint x,uint y,uint d,UIntPtr e); }'; [CU]::SetCursorPos(" + x + "," + y + "); Start-Sleep -Milliseconds 80; [CU]::mouse_event(2,0,0,0,[UIntPtr]::Zero); [CU]::mouse_event(4,0,0,0,[UIntPtr]::Zero)"
-      : 'Add-Type -TypeDefinition "using System; using System.Runtime.InteropServices; public class CU { [DllImport(\"user32.dll\")] public static extern bool SetCursorPos(int x,int y); }"; [CU]::SetCursorPos(' + x + ',' + y + ')';
+      : "Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class CU { [DllImport(\"user32.dll\")] public static extern bool SetCursorPos(int x,int y); }'; [CU]::SetCursorPos(" + x + "," + y + ")";
     await exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], { timeout: 5000, windowsHide: true });
     return type === 'click' ? 'Clic effectué en ' + x + ',' + y : 'Curseur déplacé en ' + x + ',' + y;
   }
