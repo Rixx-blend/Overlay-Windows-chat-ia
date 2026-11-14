@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('api', {
   installLocalAI: () => ipcRenderer.invoke('install-local-ai'),
   imageStatus: () => ipcRenderer.invoke('image-status'),
   generateImage: (options) => ipcRenderer.invoke('generate-image', options),
+  openGeneratedImage: () => ipcRenderer.invoke('open-generated-image'),
   onImageProgress: (cb) => on('image-progress', cb),
 
   // Mises à jour
