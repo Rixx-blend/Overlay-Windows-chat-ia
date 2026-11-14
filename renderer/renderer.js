@@ -35,6 +35,10 @@ let messages = [];
 let pending = [];
 let current = null; // bulle de réponse en cours
 let aiText = '';
+let lastAsk = ''; // dernier message de l'utilisateur : dit si son action était demandée
+// Verbes d'action demandés par l'utilisateur : dans ce cas la commande est exécutée sans confirmation
+const ASK_ACTION_RE = /(ouvr|lanc|d[ée]marr|ferm|supprim|effac|install|ex[ée]cut|affich|minimis|maximis|cr[ée]e|renomm|copi|colle)/i;
+const LEVEL_ORDER = ['low', 'high', 'max'];
 let busy = false;
 let recorder = null;
 let transcribing = false;
@@ -152,11 +156,23 @@ function readAsDataURL(f) {
   });
 }
 
+// Image réduite (1024 px max) et convertie en JPEG : le modèle local accepte mal les grands fichiers
+async function shrinkImage(f) {
+  const bmp = await createImageBitmap(f);
+  const k = Math.min(1, 1024 / Math.max(bmp.width, bmp.height));
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(bmp.width * k));
+  c.height = Math.max(1, Math.round(bmp.height * k));
+  c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+  bmp.close();
+  return c.toDataURL('image/jpeg', 0.9);
+}
+
 async function readAttachment(f) {
   const base = { name: f.name, size: f.size };
   if (f.type.startsWith('image/')) {
     if (f.size > MAX_IMAGE) throw new Error(`${f.name} : image trop lourde (8 Mo max)`);
-    return { ...base, kind: 'image', url: await readAsDataURL(f) };
+    return { ...base, kind: 'image', url: await shrinkImage(f) };
   }
   if (f.type.startsWith('text/') || TEXT_EXT.test(f.name)) {
     const text = await f.slice(0, MAX_TEXT).text();
@@ -255,6 +271,7 @@ function addBubble(role, text, atts = []) {
 function submit() {
   const text = input.value.trim();
   if (busy || (!text && !pending.length)) return;
+  lastAsk = text;
   const atts = pending.slice();
   const content = buildContent(text);
   addBubble('user', text, atts);
@@ -304,13 +321,25 @@ bridge.onDone((err) => {
   scheduleClose();
 });
 
-// Commande proposée par l'IA : exécutée seulement après validation
+// Exécute une commande sans demander (quand l'utilisateur l'a demandée lui-même)
+async function runCmd(cmd) {
+  const r = await bridge.runCommand(cmd);
+  addBubble('sys', (r.ok ? 'Résultat :\n' : 'Échec :\n') + r.out);
+  messages.push({ role: 'user', content: `Résultat de la commande "${cmd}" :\n${r.out}` });
+}
+
+// Commande proposée par l'IA : exécutée directement si l'utilisateur a demandé une action,
+// sinon affichée et exécutée seulement après validation
 function proposeAction(raw) {
   let cmd = '';
   try {
     cmd = String(JSON.parse(raw.trim()).command || '');
   } catch {
     addBubble('sys', 'Commande illisible.');
+    return;
+  }
+  if (ASK_ACTION_RE.test(lastAsk)) {
+    runCmd(cmd);
     return;
   }
   if (!cmd) return;
@@ -457,16 +486,16 @@ function renderLevel() {
   }
 }
 
+// Un clic fait passer au niveau suivant : Bas, Haut, Max, puis Bas
 levelBtn.addEventListener('click', (e) => {
   e.stopPropagation();
   menu.hidden = true;
-  levelMenu.hidden = !levelMenu.hidden;
-  if (!levelMenu.hidden) {
-    renderLevel();
-    keepOpen();
-  } else {
-    scheduleClose();
-  }
+  levelMenu.hidden = true;
+  const i = LEVEL_ORDER.indexOf(settings.level);
+  settings.level = LEVEL_ORDER[(i + 1) % LEVEL_ORDER.length];
+  bridge.setSettings({ level: settings.level });
+  renderLevel();
+  keepOpen();
 });
 
 // ---------- Paramètres ----------

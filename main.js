@@ -386,7 +386,10 @@ Tu fonctionnes localement. Ton modèle est Qwen 2.5 VL 3B, développé par Aliba
           options: { num_predict: L.tokens, temperature: 0.3, num_ctx: 4096 },
         }),
       });
-      if (!res.ok) throw new Error(`Ollama HTTP ${res.status}. L'IA locale est-elle installée ?`);
+      if (!res.ok) {
+        const detail = await res.text();
+        throw new Error(`Ollama HTTP ${res.status} : ${detail.slice(0, 300)}`);
+      }
       await readLines(res, (line) => {
         const j = JSON.parse(line);
         if (j.error) throw new Error(j.error);
