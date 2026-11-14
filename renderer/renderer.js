@@ -1097,8 +1097,28 @@ async function removeBackgroundInChat(imagePath) {
     image.src = result.dataUrl;
     const caption = document.createElement('div');
     caption.className = 'generated-caption';
-    caption.textContent = 'Fond supprimé · PNG avec transparence · non enregistré, utilise Enregistrer pour la télécharger';
-    resultBubble.replaceChildren(image, caption);
+    caption.textContent = 'Fond supprimé · PNG avec transparence · utilise Télécharger pour l’enregistrer';
+    const cutoutPath = result.path || null;
+    const actions = document.createElement('div');
+    actions.className = 'generated-actions';
+    const addCutoutAction = (label, icon, handler) => {
+      const button = document.createElement('button');
+      button.className = 'generated-action-btn';
+      button.type = 'button';
+      button.title = label;
+      button.innerHTML = icon + '<span>' + label + '</span>';
+      button.addEventListener('click', handler);
+      actions.appendChild(button);
+    };
+    addCutoutAction('Télécharger', '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5"/><path d="M5 17v3h14v-3"/></svg>', async () => {
+      const saved = await bridge.saveGeneratedImage(cutoutPath);
+      if (!saved?.ok && saved?.message) flash(saved.message);
+    });
+    addCutoutAction('Copier', '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg>', async () => {
+      const copied = await bridge.copyGeneratedImage(cutoutPath);
+      flash(copied?.ok ? 'Image copiée' : (copied?.message || 'Copie impossible'));
+    });
+    resultBubble.replaceChildren(image, caption, actions);
     lastGeneratedImagePath = result.path || lastGeneratedImagePath;
     messages.push({ role: 'assistant', content: 'Arrière-plan supprimé. PNG transparent enregistré.' });
   } catch (err) {
