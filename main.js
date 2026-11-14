@@ -1213,7 +1213,7 @@ async function removeImageBackground(imagePath) {
   imageReport('Affinage des contours et création du PNG transparent…');
   const resizedMask = await sharp(mask, {
     raw: { width: RMBG_INPUT_SIZE, height: RMBG_INPUT_SIZE, channels: 1 },
-  }).resize(metadata.width, metadata.height, { fit: 'fill', kernel: 'lanczos3' }).blur(0.25).png().toBuffer();
+  }).resize(metadata.width, metadata.height, { fit: 'fill', kernel: 'lanczos3' }).blur(0.3).png().toBuffer();
 
   const transparentPng = await sharp(original)
     .removeAlpha()
