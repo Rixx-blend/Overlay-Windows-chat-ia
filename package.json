@@ -1,6 +1,6 @@
 {
   "name": "overlay-ia",
-  "version": "1.0.16",
+  "version": "1.0.17",
   "description": "Overlay de chat IA en verre liquide pour Windows",
   "main": "main.js",
   "private": true,
