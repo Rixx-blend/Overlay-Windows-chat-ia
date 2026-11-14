@@ -697,7 +697,85 @@ async function comfyRequest(route, options = {}, timeout = 10000) {
   return response;
 }
 
+let comfyLaunchInProgress = false;
+
+function findComfyInstallation() {
+  const home = os.homedir();
+  const roots = [
+    settings.comfyuiPath,
+    path.join(home, 'ComfyUI_windows_portable'),
+    path.join(home, 'Downloads', 'ComfyUI_windows_portable'),
+    path.join(home, 'Desktop', 'ComfyUI_windows_portable'),
+    path.join(home, 'ComfyUI'),
+    path.join(home, 'Downloads', 'ComfyUI'),
+    path.join(home, 'Desktop', 'ComfyUI'),
+    'C:\\ComfyUI_windows_portable',
+    'D:\\ComfyUI_windows_portable',
+    'C:\\ComfyUI',
+    'D:\\ComfyUI',
+  ].filter(Boolean);
+  for (const root of [...new Set(roots.map((p) => path.resolve(p)))]) {
+    const portableBat = path.join(root, 'run_nvidia_gpu.bat');
+    const portablePython = path.join(root, 'python_embeded', 'python.exe');
+    const portableMain = path.join(root, 'ComfyUI', 'main.py');
+    if (fs.existsSync(portableBat) || (fs.existsSync(portablePython) && fs.existsSync(portableMain))) {
+      return { root, bat: fs.existsSync(portableBat) ? portableBat : null, python: portablePython, main: portableMain };
+    }
+    const regularMain = path.join(root, 'main.py');
+    const venvPython = path.join(root, 'venv', 'Scripts', 'python.exe');
+    if (fs.existsSync(regularMain) && fs.existsSync(venvPython)) {
+      return { root, bat: null, python: venvPython, main: regularMain };
+    }
+  }
+  return null;
+}
+
+async function startComfyIfAvailable() {
+  if (comfyLaunchInProgress) return;
+  const installation = findComfyInstallation();
+  if (!installation) return;
+  comfyLaunchInProgress = true;
+  try {
+    imageReport('Démarrage automatique de ComfyUI…');
+    let child;
+    if (installation.bat) {
+      child = spawn('cmd.exe', ['/d', '/s', '/c', '"' + installation.bat + '"'], {
+        cwd: installation.root, detached: true, stdio: 'ignore', windowsHide: true,
+      });
+    } else {
+      child = spawn(installation.python, [installation.main, '--listen', '127.0.0.1', '--port', '8188'], {
+        cwd: installation.root, detached: true, stdio: 'ignore', windowsHide: true,
+      });
+    }
+    child.on('error', (err) => {
+      imageReport('Impossible de démarrer ComfyUI : ' + err.message);
+      comfyLaunchInProgress = false;
+    });
+    child.unref();
+    const deadline = Date.now() + 90000;
+    while (Date.now() < deadline) {
+      await sleep(2000);
+      try {
+        const response = await fetch(COMFY_URL + '/system_stats', { signal: AbortSignal.timeout(2500) });
+        if (response.ok) {
+          settings.comfyuiPath = installation.root;
+          saveSettings();
+          return;
+        }
+      } catch {}
+    }
+    imageReport('ComfyUI démarre lentement. Vérifie que son serveur est actif sur le port 8188.');
+  } finally {
+    comfyLaunchInProgress = false;
+  }
+}
+
 async function getImageStatus() {
+  try {
+    await comfyRequest('/system_stats');
+  } catch {
+    await startComfyIfAvailable();
+  }
   try {
     await comfyRequest('/system_stats');
     const infoResponse = await comfyRequest('/object_info/CheckpointLoaderSimple');
@@ -714,12 +792,15 @@ async function getImageStatus() {
         : 'ComfyUI actif · checkpoint SDXL 1.0 manquant',
     };
   } catch {
+    const installed = !!findComfyInstallation();
     return {
       running: false,
       installed: false,
       checkpoint: SDXL_CHECKPOINT,
       checkpoints: [],
-      message: 'ComfyUI non détecté sur le port 8188',
+      message: installed
+        ? 'ComfyUI est installé mais son serveur ne démarre pas sur le port 8188'
+        : 'ComfyUI introuvable. Installe ComfyUI Windows Portable dans le dossier utilisateur.',
     };
   }
 }
