@@ -766,3 +766,28 @@ details.sources > summary:hover { opacity: 1; }
 .source-title { font-weight: 600; }
 .source-item a { color: inherit; opacity: .75; text-decoration: underline; word-break: break-all; }
 .source-desc { opacity: .75; margin-top: 2px; }
+
+/* Barre de défilement dans le style verre : fine, sans flèches, transparente */
+.chat, .panel, .reference-previews {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,.45) transparent;
+}
+.chat::-webkit-scrollbar, .panel::-webkit-scrollbar, .reference-previews::-webkit-scrollbar {
+  width: 6px;
+  background: transparent;
+}
+.chat::-webkit-scrollbar-track, .panel::-webkit-scrollbar-track, .reference-previews::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 4px 0;
+}
+.chat::-webkit-scrollbar-thumb, .panel::-webkit-scrollbar-thumb, .reference-previews::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,.4);
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.25);
+}
+.chat::-webkit-scrollbar-thumb:hover, .panel::-webkit-scrollbar-thumb:hover, .reference-previews::-webkit-scrollbar-thumb:hover {
+  background: rgba(255,255,255,.6);
+}
+.chat::-webkit-scrollbar-button, .panel::-webkit-scrollbar-button, .reference-previews::-webkit-scrollbar-button {
+  display: none;
+}
