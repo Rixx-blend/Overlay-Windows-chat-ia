@@ -655,8 +655,11 @@ function revealGeneratedImage(dataUrl) {
     const img = $('generatedImage');
     const grid = $('imagePixelGrid');
     const dimensions = buildImagePixelGrid();
+    let processed = false;
 
     const finish = () => {
+      if (processed) return;
+      processed = true;
       try {
         const canvas = document.createElement('canvas');
         canvas.width = dimensions.cols;
