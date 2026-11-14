@@ -365,12 +365,12 @@ function submit() {
     return;
   }
   const imagePrompt = !pending.length ? (imageMode ? text : extractImagePrompt(text)) : null;
-  // Les demandes en plusieurs étapes passent par le moteur Computer Use, pas par le résolveur d'applications.
-  const multiStepComputerTask =
-    /\b(?:ouvre|ouvrir|lance|lancer|d[ée]marre|d[ée]marrer)\b/i.test(text) &&
-    /(?:\bet\b|\bpuis\b|\bensuite\b|,)/i.test(text) &&
-    /\b(?:trouve|cherche|supprime|efface|clique|d[ée]place|renomme|copie|colle|ouvre|lance)\b/i.test(text);
-  if (multiStepComputerTask && !pending.length && settings.allowActions) {
+  // Les demandes qui manipulent le PC passent par Computer Use.
+  const lancer = text.match(LAUNCH_RE);
+  const simpleLaunch = !!lancer &&
+    !/\\b(?:et|puis|ensuite|dossier|fichier|t[ée]l[ée]chargements?|downloads?|bureau|documents?|images?|png|jpe?g|trouve|cherche|supprime|efface|clique|d[ée]place|renomme|copie|colle)\\b/i.test(lancer[2]);
+  const startsComputerTask = /^(?:peux[- ]tu\\s+)?(?:ouvre|ouvrir|lance|lancer|d[ée]marre|d[ée]marrer|trouve|chercher|cherche|recherche|supprime|supprimer|efface|effacer|clique|cliquer|d[ée]place|renomme|copie|colle)\\b/i.test(text);
+  if (startsComputerTask && !simpleLaunch && !pending.length && settings.allowActions) {
     input.value = '';
     addBubble('user', text);
     activeComputerBubble = addBubble('sys', 'Computer Use : démarrage du moteur local…');
@@ -383,8 +383,7 @@ function submit() {
   }
 
   // « ouvre X » seul : ouverture directe, sans passer par le modèle
-  const lancer = text.match(LAUNCH_RE);
-  if (lancer && !pending.length) {
+  if (lancer && simpleLaunch && !pending.length) {
     input.value = '';
     addBubble('user', text);
     messages.push({ role: 'user', content: text });
