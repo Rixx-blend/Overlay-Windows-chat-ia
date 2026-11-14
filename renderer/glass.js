@@ -157,7 +157,7 @@
   const snapTex = makeTex();   // photo figée du bureau (mode défaut)
 
   // ---------- État ----------
-  let live = false;
+  let live = true;
   let shown = true;
   let geo = null;
   let stream = null;
@@ -238,7 +238,7 @@
           hasSnap = true;
           snapVersion++;
         }
-        stopStream();
+        if (!live) stopStream();
       }
     } finally {
       await window.api.protect(live);
