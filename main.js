@@ -38,7 +38,7 @@ Quand l'utilisateur demande une action, réponds par une phrase courte, puis ajo
 {"tool":"powershell","command":"..."}
 \`\`\`
 Le bloc ne contient que ce JSON. Pour ouvrir un logiciel installé, utilise Start-Process. Blender est en général dans C:/Program Files/Blender Foundation, par exemple : {"tool":"powershell","command":"Start-Process (Get-ChildItem 'C:/Program Files/Blender Foundation' -Recurse -Filter blender.exe | Select-Object -First 1).FullName"}
-L'utilisateur validera avant toute exécution.`;
+Interprète les noms dictés ou saisis avec tolérance : fautes de frappe, accents, mots manquants, noms abrégés, nom commercial différent du nom installé, éditeur et numéro de version ajoutés au nom. Ne conclus pas qu'un logiciel est absent uniquement parce que son libellé exact diffère. Pour ouvrir une application, laisse le résolveur local rechercher le meilleur candidat ; si plusieurs applications restent réellement plausibles, demande une précision au lieu d'en choisir une au hasard. L'utilisateur validera avant toute exécution.`;
 
 const DEFAULTS = {
   engine: 'ollama',
@@ -444,14 +444,42 @@ const ALIAS_APP = {
 const normaliser = (t) =>
   String(t).normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
-// Distance d'édition simple : tolère une lettre mal reconnue
+// Distance de Damerau-Levenshtein : tolère aussi les lettres inversées (ex. aftre).
 function distance(a, b) {
-  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
-  for (let j = 1; j <= b.length; j++) d[0][j] = j;
-  for (let i = 1; i <= a.length; i++)
-    for (let j = 1; j <= b.length; j++)
-      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  const d = Array.from({ length: a.length + 1 }, (_, i) =>
+    Array.from({ length: b.length + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0)),
+  );
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      d[i][j] = Math.min(
+        d[i - 1][j] + 1,
+        d[i][j - 1] + 1,
+        d[i - 1][j - 1] + cost,
+      );
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+        d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+      }
+    }
+  }
   return d[a.length][b.length];
+}
+
+// Compare les mots utiles plutôt que le libellé complet :
+// "After Effects" doit correspondre à "Adobe After Effects 2026".
+const MOTS_GENERIQUES = new Set([
+  'adobe', 'microsoft', 'the', 'app', 'application', 'software',
+  '2024', '2025', '2026', '2027', 'x64', 'x86', '64', '32',
+]);
+
+function scoreMot(demande, candidat) {
+  if (demande === candidat) return 1;
+  if (candidat.startsWith(demande) || candidat.includes(demande)) return 0.96;
+  if (demande.startsWith(candidat) && candidat.length >= 3) return 0.9;
+  const dist = distance(demande, candidat);
+  const limite = demande.length >= 7 ? 2 : demande.length >= 4 ? 1 : 0;
+  if (dist > limite) return 0;
+  return Math.max(0, 1 - dist / Math.max(demande.length, candidat.length));
 }
 
 function scoreNom(demande, libelle) {
@@ -459,13 +487,17 @@ function scoreNom(demande, libelle) {
   const l = normaliser(libelle);
   if (!d || !l) return 0;
   if (d === l) return 1;
-  if (l.includes(d)) return 0.95;
-  const mots = d.split(' ');
-  const motsL = l.split(' ');
-  const ok = mots.filter((m) =>
-    motsL.some((x) => x.startsWith(m) || (m.length >= 4 && x.length >= 4 && distance(m, x) <= 1)),
-  ).length;
-  return (ok / mots.length) * 0.9;
+  if (l.includes(d)) return 0.99;
+
+  const mots = d.split(' ').filter((m) => m.length > 1 && !MOTS_GENERIQUES.has(m));
+  const motsL = l.split(' ').filter((m) => m.length > 1 && !MOTS_GENERIQUES.has(m));
+  if (!mots.length || !motsL.length) return 0;
+
+  const scores = mots.map((mot) => Math.max(0, ...motsL.map((x) => scoreMot(mot, x))));
+  const couverture = scores.filter((s) => s >= 0.72).length / mots.length;
+  const moyenne = scores.reduce((a, b) => a + b, 0) / scores.length;
+  // La couverture évite qu'un seul mot courant suffise à ouvrir la mauvaise application.
+  return couverture * 0.78 + moyenne * 0.22;
 }
 
 // Raccourcis du menu Démarrer (utilisateur et ensemble du PC)
@@ -533,7 +565,7 @@ function trouverApplication(nom) {
     } else if (s > second) second = s;
   }
   // Sûr : correspondance nette et sans second candidat proche
-  if (meilleur && score >= 0.9 && score - second >= 0.05) return meilleur.file;
+  if (meilleur && score >= 0.78 && (score - second >= 0.08 || score >= 0.98)) return meilleur.file;
   try {
     const r = spawnSync('where', [alias], { windowsHide: true, encoding: 'utf8' });
     const ligne = (r.stdout || '').split(/\r?\n/).find((l) => l.trim());
