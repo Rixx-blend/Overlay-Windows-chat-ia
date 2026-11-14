@@ -94,7 +94,7 @@
 
       // Éclaircissement et saturation
       float lum = dot(col, vec3(0.299, 0.587, 0.114));
-      col = mix(vec3(lum), col, 1.25);
+      col = mix(vec3(lum), col, 0.85);
       col = mix(col, vec3(1.0), u_tint);
 
       // Bord lumineux + reflet spéculaire (lumière en haut à gauche)
@@ -315,11 +315,11 @@
       gl.uniform1f(U.u_s, dpr);
       gl.uniform2f(U.u_uvOff, geo.x / geo.dw, geo.y / geo.dh);
       gl.uniform2f(U.u_uvScale, geo.w / geo.dw, geo.h / geo.dh);
-      gl.uniform2f(U.u_blurUV, 1.5 / srcW, 1.5 / srcH);
+      gl.uniform2f(U.u_blurUV, 3.0 / srcW, 3.0 / srcH);
       gl.uniform1f(U.u_refract, 16 * dpr);
       gl.uniform1f(U.u_edge, 34 * dpr);
       gl.uniform1f(U.u_ca, 6 * dpr);
-      gl.uniform1f(U.u_tint, 0.12);
+      gl.uniform1f(U.u_tint, 0.3);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     }
     requestAnimationFrame(frame);
