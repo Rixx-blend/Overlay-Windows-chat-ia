@@ -363,11 +363,79 @@ function toOllamaMessages(msgs) {
 }
 
 // ---------- Chat : OpenAI ou Ollama, avec niveau de réflexion ----------
+// Envoie une requête Ollama en gardant la réponse en mémoire jusqu'à sa fin.
+// Ainsi, un échec du GPU suivi d'un nouvel essai CPU ne mélange jamais deux générations.
+async function requestOllamaChat(messages, model, tokenLimit, send) {
+  const baseOptions = {
+    num_predict: Math.min(tokenLimit, 1200),
+    num_ctx: 8192,
+    temperature: 0.2,
+    top_p: 0.9,
+    top_k: 40,
+    repeat_last_n: 128,
+    repeat_penalty: 1.12,
+  };
+
+  const attempts = [
+    { label: 'GPU', options: baseOptions },
+    { label: 'CPU de secours', options: { ...baseOptions, num_gpu: 0 } },
+  ];
+  let lastError;
+
+  for (let index = 0; index < attempts.length; index++) {
+    const attempt = attempts[index];
+    try {
+      if (index > 0) report('Instabilité détectée sur le calcul graphique. Nouvel essai en mode CPU…');
+      const res = await fetch(OLLAMA + '/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(10 * 60 * 1000),
+        body: JSON.stringify({
+          model,
+          messages,
+          stream: true,
+          keep_alive: '5m',
+          options: attempt.options,
+        }),
+      });
+
+      if (!res.ok) {
+        const detail = await res.text();
+        throw new Error(`Ollama HTTP ${res.status} : ${detail.slice(0, 500)}`);
+      }
+
+      let answer = '';
+      let completed = false;
+      await readLines(res, (line) => {
+        const j = JSON.parse(line);
+        if (j.error) throw new Error(j.error);
+        if (j.message?.content) answer += j.message.content;
+        if (j.done) completed = true;
+      });
+
+      if (!completed) throw new Error("Ollama a interrompu le flux avant la fin de la réponse.");
+      if (!answer.trim()) throw new Error("Ollama a terminé sans produire de réponse.");
+      send('token', answer);
+      return;
+    } catch (err) {
+      lastError = err;
+      const repeatError = /token repeat limit reached|répétition de tokens/i.test(err.message || '');
+      // Le second essai CPU cible notamment les erreurs du moteur vision CUDA.
+      if (index === 0 && (repeatError || messages.some((m) => Array.isArray(m.images) && m.images.length))) {
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastError || new Error("Échec de génération Ollama.");
+}
+
 ipcMain.on('chat', async (e, payload) => {
   const { messages, engine, model, level, allowActions } = payload;
   const L = LEVELS[level] || LEVELS.low;
   let sys = `Tu es un assistant installé sur le PC de l'utilisateur, dans un overlay. ${L.hint}
-Tu fonctionnes localement. Ton modèle est Qwen 2.5 VL 3B, développé par Alibaba Cloud, exécuté localement par Ollama. Ne prétends jamais être un autre modèle et n'invente jamais de version.`;
+Tu fonctionnes localement. Ton modèle est Qwen 2.5 VL 3B, développé par Alibaba Cloud, exécuté localement par Ollama. Ne prétends jamais être un autre modèle et n'invente jamais de version.
+Réponds directement à la demande. Évite les répétitions et arrête-toi dès que la réponse est complète.`;
   if (allowActions) sys += ACTION_HINT;
   const full = [{ role: 'system', content: sys }, ...messages];
   const send = (channel, value) => {
@@ -376,29 +444,10 @@ Tu fonctionnes localement. Ton modèle est Qwen 2.5 VL 3B, développé par Aliba
 
   try {
     if (engine === 'ollama') {
-      const res = await fetch(OLLAMA + '/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model,
-          messages: toOllamaMessages(full),
-          stream: true,
-          keep_alive: -1,
-          options: { num_predict: L.tokens, temperature: 0.3, num_ctx: 4096 },
-        }),
-      });
-      if (!res.ok) {
-        const detail = await res.text();
-        throw new Error(`Ollama HTTP ${res.status} : ${detail.slice(0, 300)}`);
-      }
-      await readLines(res, (line) => {
-        const j = JSON.parse(line);
-        if (j.error) throw new Error(j.error);
-        if (j.message && j.message.content) send('token', j.message.content);
-      });
+      await requestOllamaChat(toOllamaMessages(full), model, L.tokens, send);
     } else {
       const body = { model, messages: full, stream: true, max_completion_tokens: L.tokens };
-      if (/^(gpt-5|o\d)/.test(model)) body.reasoning_effort = L.effort;
+      if (/^(gpt-5|o\\d)/.test(model)) body.reasoning_effort = L.effort;
       const res = await fetch(API_URL, {
         method: 'POST',
         headers: {
@@ -408,25 +457,29 @@ Tu fonctionnes localement. Ton modèle est Qwen 2.5 VL 3B, développé par Aliba
         body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status} : ${await res.text()}`);
+      let answer = '';
       await readLines(res, (line) => {
         if (!line.startsWith('data:')) return;
         const data = line.slice(5).trim();
         if (data === '[DONE]') return;
         try {
           const delta = JSON.parse(data).choices?.[0]?.delta?.content;
-          if (delta) send('token', delta);
+          if (delta) answer += delta;
         } catch {
           /* ligne incomplète : ignorée */
         }
       });
+      if (answer) send('token', answer);
     }
     send('done', null);
   } catch (err) {
     const down = /fetch failed/i.test(err.message) || err.cause?.code === 'ECONNREFUSED';
-    send(
-      'done',
-      down ? "L'IA locale ne répond pas. Ouvrez les paramètres (engrenage) et cliquez sur Installer." : err.message,
-    );
+    const message = /token repeat limit reached/i.test(err.message)
+      ? "Ollama produit une sortie incohérente, même après un nouvel essai CPU. Vérifiez la mise à jour d'Ollama et du modèle qwen2.5vl:3b ; le problème vient du moteur ou du modèle, pas de l'historique du chat."
+      : down
+        ? "L'IA locale ne répond pas. Ouvrez les paramètres (engrenage) et cliquez sur Installer."
+        : err.message;
+    send('done', message);
   }
 });
 
