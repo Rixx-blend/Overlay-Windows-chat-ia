@@ -99,7 +99,8 @@ function createComputerUse({ getWindow }) {
     try { message = JSON.parse(line); } catch { log('debug', line); return; }
     if (id !== runId) return;
     if (message.event === 'status') {
-      emit('computer-use-status', message);
+      // Keep controls locked until the Python child has actually exited.
+      emit('computer-use-status', { ...message, active: true });
       return;
     }
     if (message.event === 'history') {
