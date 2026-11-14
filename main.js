@@ -429,8 +429,37 @@ ipcMain.on('drag-move', () => {
 ipcMain.on('drag-end', () => {
   dragOffset = null;
 });
-ipcMain.on('mouse-in', () => win && win.setIgnoreMouseEvents(false));
-ipcMain.on('mouse-out', () => win && win.setIgnoreMouseEvents(true, { forward: true }));
+// Zone de la carte dans la fenêtre (en pixels logiques), envoyée par le renderer
+let cardRect = null;
+let interactive = false;
+let hoverState = false;
+ipcMain.on('card-rect', (_e, r) => {
+  cardRect = r;
+});
+
+// Le processus principal suit le curseur : la fenêtre ne capte les clics que sur la carte
+// (ou pendant un déplacement). Ailleurs, les clics passent aux applications dessous.
+function trackCursor() {
+  if (!win || win.isDestroyed() || !cardRect) return;
+  const p = screen.getCursorScreenPoint();
+  const b = win.getBounds();
+  const lx = p.x - b.x;
+  const ly = p.y - b.y;
+  const inside =
+    lx >= cardRect.x && lx <= cardRect.x + cardRect.w &&
+    ly >= cardRect.y && ly <= cardRect.y + cardRect.h;
+
+  const want = inside || dragOffset !== null;
+  if (want !== interactive) {
+    interactive = want;
+    if (want) win.setIgnoreMouseEvents(false);
+    else win.setIgnoreMouseEvents(true, { forward: true });
+  }
+  if (inside !== hoverState) {
+    hoverState = inside;
+    win.webContents.send('hover', inside);
+  }
+}
 ipcMain.on('focus-me', () => {
   if (win && !win.isDestroyed()) win.focus();
 });
@@ -541,6 +570,7 @@ app.whenReady().then(() => {
   if (firstRun) saveSettings();
 
   createWindow();
+  setInterval(trackCursor, 40);
   setupCapture();
   setupPermissions();
   setupUpdater();

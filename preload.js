@@ -21,8 +21,8 @@ contextBridge.exposeInMainWorld('api', {
 
   // Fenêtre
   protect: (on) => ipcRenderer.invoke('protect', on),
-  mouseIn: () => ipcRenderer.send('mouse-in'),
-  mouseOut: () => ipcRenderer.send('mouse-out'),
+  cardRect: (r) => ipcRenderer.send('card-rect', r),
+  onHover: (cb) => on('hover', cb),
   focusWindow: () => ipcRenderer.send('focus-me'),
   hide: () => ipcRenderer.send('hide'),
   dragStart: () => ipcRenderer.send('drag-start'),
