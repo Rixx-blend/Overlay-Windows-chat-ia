@@ -1,6 +1,7 @@
 import os
 import subprocess
 import time
+import unicodedata
 from pathlib import Path
 
 import pyautogui
@@ -33,6 +34,7 @@ def launch_app(name):
         raise ValueError("Nom d'application manquant.")
     escaped = name.replace("'", "''")
     script = (
+        "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(); $OutputEncoding = [Console]::OutputEncoding; "
         "$ErrorActionPreference='Stop'; $n='" + escaped + "'; "
         "$a=Get-StartApps | Where-Object { $_.Name -like ('*'+$n+'*') } | "
         "Sort-Object @{Expression={if ($_.Name -ieq $n){0}elseif($_.Name -ilike ($n+'*')){1}else{2}}} | "
@@ -47,25 +49,63 @@ def launch_app(name):
     )
     result = subprocess.run(
         ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
-        capture_output=True, text=True, timeout=20, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
     if result.returncode:
         raise RuntimeError((result.stderr or result.stdout or "Lancement impossible.").strip()[:500])
     return (result.stdout or "Lancement demandé.").strip()
 
 
+def _normalize_folder_name(value):
+    value = unicodedata.normalize("NFKD", str(value or "")).encode("ascii", "ignore").decode("ascii")
+    return " ".join(value.casefold().replace("_", " ").replace("-", " ").split())
+
+
+def _windows_user_folder(registry_name, fallback_names):
+    if os.name == "nt":
+        try:
+            import winreg
+            key_path = r"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\User Shell Folders"
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path) as key:
+                value, _ = winreg.QueryValueEx(key, registry_name)
+            value = os.path.expandvars(str(value))
+            candidate = Path(value).expanduser()
+            if candidate.exists():
+                return candidate
+        except (OSError, ImportError):
+            pass
+    home = Path.home()
+    candidates = [home / name for name in fallback_names]
+    one_drive = os.environ.get("OneDrive") or os.environ.get("OneDriveConsumer")
+    if one_drive:
+        candidates.extend(Path(one_drive) / name for name in fallback_names)
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
+
 def find_latest_file(folder, extension):
-    roots = {
-        "downloads": Path.home() / "Downloads",
-        "desktop": Path.home() / "Desktop",
-        "documents": Path.home() / "Documents",
-        "pictures": Path.home() / "Pictures",
+    aliases = {
+        "downloads": ("Downloads", ("Downloads", "Téléchargements", "Telechargements")),
+        "telechargements": ("Downloads", ("Downloads", "Téléchargements", "Telechargements")),
+        "download": ("Downloads", ("Downloads", "Téléchargements", "Telechargements")),
+        "telechargement": ("Downloads", ("Downloads", "Téléchargements", "Telechargements")),
+        "desktop": ("Desktop", ("Desktop", "Bureau")),
+        "bureau": ("Desktop", ("Desktop", "Bureau")),
+        "documents": ("Personal", ("Documents",)),
+        "document": ("Personal", ("Documents",)),
+        "pictures": ("My Pictures", ("Pictures", "Images")),
+        "images": ("My Pictures", ("Pictures", "Images")),
+        "photos": ("My Pictures", ("Pictures", "Images")),
     }
-    key = str(folder or "Downloads").strip().lower()
-    root = roots.get(key)
+    key = _normalize_folder_name(folder or "Downloads")
+    selected = aliases.get(key)
+    if selected is None:
+        raise ValueError("Dossier non autorisé : " + str(folder))
+    registry_name, fallback_names = selected
+    root = _windows_user_folder(registry_name, fallback_names)
     ext = str(extension or ".png").strip().lower()
-    if root is None:
-        raise ValueError("Dossier non autorisé.")
     if not ext.startswith(".") or len(ext) > 10 or not ext[1:].isalnum():
         raise ValueError("Extension invalide.")
     if not root.exists():
