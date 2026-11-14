@@ -676,6 +676,7 @@ function fillPanel() {
   $('autoUpd').checked = !!settings.autoUpdate;
   $('allowAct').checked = !!settings.allowActions;
   $('webSearch').checked = !!settings.webSearch;
+  $('braveKey').value = settings.braveKey || '';
   refreshOllama();
   bridge.getVersion().then((v) => ($('version').textContent = v));
 }
@@ -1018,6 +1019,11 @@ $('allowAct').addEventListener('change', (e) => {
 $('webSearch').addEventListener('change', (e) => {
   settings.webSearch = e.target.checked;
   bridge.setSettings({ webSearch: settings.webSearch });
+});
+
+$('braveKey').addEventListener('change', (e) => {
+  settings.braveKey = e.target.value.trim();
+  bridge.setSettings({ braveKey: settings.braveKey });
 });
 
 $('installAI').addEventListener('click', async () => {
