@@ -51,6 +51,7 @@ const LAUNCH_RE = /^(?:peux[- ]tu\s+)?(ouvre|ouvrir|lance|lancer|d[ée]marre|d[�
 const ASK_ACTION_RE = /(ouvr|lanc|d[ée]marr|ferm|supprim|effac|install|ex[ée]cut|affich|minimis|maximis|cr[ée]e|renomm|copi|colle)/i;
 const LEVEL_ORDER = ['low', 'high', 'max'];
 let busy = false;
+let activeComputerBubble = null;
 let recorder = null;
 let transcribing = false;
 let closeTimer = null;
@@ -364,7 +365,24 @@ function submit() {
     return;
   }
   const imagePrompt = !pending.length ? (imageMode ? text : extractImagePrompt(text)) : null;
-  // « ouvre X » : ouverture directe, sans passer par le modèle
+  // Les demandes en plusieurs étapes passent par le moteur Computer Use, pas par le résolveur d'applications.
+  const multiStepComputerTask =
+    /\\b(?:ouvre|ouvrir|lance|lancer|d[ée]marre|d[ée]marrer)\\b/i.test(text) &&
+    /(?:\\bet\\b|\\bpuis\\b|\\bensuite\\b|,)/i.test(text) &&
+    /\\b(?:trouve|cherche|supprime|efface|clique|d[ée]place|renomme|copie|colle|ouvre|lance)\\b/i.test(text);
+  if (multiStepComputerTask && !pending.length && settings.allowActions) {
+    input.value = '';
+    addBubble('user', text);
+    activeComputerBubble = addBubble('sys', 'Computer Use : démarrage du moteur local…');
+    bridge.computerUseStart(text).then((result) => {
+      if (!result.ok && activeComputerBubble) activeComputerBubble.textContent = result.error || 'Démarrage impossible.';
+    }).catch((error) => {
+      if (activeComputerBubble) activeComputerBubble.textContent = 'Computer Use : ' + error.message;
+    });
+    return;
+  }
+
+  // « ouvre X » seul : ouverture directe, sans passer par le modèle
   const lancer = text.match(LAUNCH_RE);
   if (lancer && !pending.length) {
     input.value = '';
@@ -1179,8 +1197,21 @@ computerStop.addEventListener('click', async () => {
 bridge.onComputerUseStatus((state) => {
   computerStatus.textContent = state.message || (state.active ? 'En cours…' : 'Agent inactif');
   computerStart.disabled = !!state.active; computerStop.disabled = !state.active;
+  if (activeComputerBubble && state.message && state.message !== 'Agent inactif.') {
+    const status = document.createElement('div');
+    status.textContent = state.message;
+    activeComputerBubble.appendChild(status);
+  }
+  if (!state.active && state.message === 'Agent inactif.') activeComputerBubble = null;
 });
-bridge.onComputerUseHistory(addComputerHistory);
+bridge.onComputerUseHistory((item) => {
+  addComputerHistory(item);
+  if (activeComputerBubble) {
+    const line = document.createElement('div');
+    line.textContent = String(item.type || 'action') + ' — ' + String(item.detail || '').slice(0, 180);
+    activeComputerBubble.appendChild(line);
+  }
+});
 bridge.onComputerUseConfirmation(async (request) => {
   const approved = window.confirm('L’IA demande une validation avant cette action :\n\n' + request.reason + '\n\nAutoriser cette action ?');
   await bridge.computerUseApprove(approved);
