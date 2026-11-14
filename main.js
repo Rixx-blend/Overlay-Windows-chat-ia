@@ -835,27 +835,72 @@ async function installComfyPortable() {
 
 async function startComfyIfAvailable() {
   if (comfyLaunchInProgress) return;
+  // Ne pas lancer une deuxième instance si le serveur répond déjà.
+  try {
+    const active = await fetch(COMFY_URL + '/system_stats', { signal: AbortSignal.timeout(1500) });
+    if (active.ok) return;
+  } catch {}
+
   const installation = findComfyInstallation();
-  if (!installation) return;
+  if (!installation) {
+    imageReport('Installation ComfyUI introuvable. Vérifie le dossier sélectionné.');
+    return;
+  }
+
   comfyLaunchInProgress = true;
+  const logFile = path.join(app.getPath('userData'), 'comfyui-startup.log');
+  let logFd = null;
+  let child = null;
+  let exitInfo = null;
+
   try {
     imageReport('Démarrage automatique de ComfyUI…');
-    let child;
-    const launchBat = hasNvidiaGpu() ? installation.bat : (installation.cpuBat || installation.bat);
+    try {
+      logFd = fs.openSync(logFile, 'a');
+      fs.writeSync(logFd, '\n\n===== Démarrage ComfyUI ' + new Date().toISOString() + ' =====\n');
+    } catch (err) {
+      imageReport('Impossible de créer le journal ComfyUI : ' + err.message);
+    }
+
+    const launchBat = hasNvidiaGpu()
+      ? (installation.bat || installation.cpuBat)
+      : (installation.cpuBat || installation.bat);
+
     if (launchBat) {
-      child = spawn('cmd.exe', ['/d', '/s', '/c', '"' + launchBat + '"'], {
-        cwd: installation.root, detached: true, stdio: 'ignore', windowsHide: true,
+      // Ne pas utiliser /s : cmd.exe retire alors les guillemets du chemin
+      // et casse les installations situées dans un dossier contenant des espaces.
+      child = spawn('cmd.exe', ['/d', '/c', '"' + launchBat + '"'], {
+        cwd: installation.root,
+        detached: true,
+        stdio: ['ignore', logFd ?? 'ignore', logFd ?? 'ignore'],
+        windowsHide: true,
+      });
+    } else if (installation.python && installation.main) {
+      child = spawn(installation.python, [
+        installation.main, '--listen', '127.0.0.1', '--port', '8188',
+      ], {
+        cwd: installation.root,
+        detached: true,
+        stdio: ['ignore', logFd ?? 'ignore', logFd ?? 'ignore'],
+        windowsHide: true,
       });
     } else {
-      child = spawn(installation.python, [installation.main, '--listen', '127.0.0.1', '--port', '8188'], {
-        cwd: installation.root, detached: true, stdio: 'ignore', windowsHide: true,
-      });
+      throw new Error('Aucun lanceur ComfyUI ou Python valide trouvé dans ' + installation.root);
     }
+
+    if (logFd !== null) {
+      try { fs.closeSync(logFd); } catch {}
+      logFd = null;
+    }
+
     child.on('error', (err) => {
-      imageReport('Impossible de démarrer ComfyUI : ' + err.message);
-      comfyLaunchInProgress = false;
+      exitInfo = 'Erreur de lancement : ' + err.message;
+    });
+    child.on('exit', (code, signal) => {
+      exitInfo = 'Le processus ComfyUI s’est arrêté (code ' + code + (signal ? ', signal ' + signal : '') + ').';
     });
     child.unref();
+
     const deadline = Date.now() + 90000;
     while (Date.now() < deadline) {
       await sleep(2000);
@@ -864,12 +909,29 @@ async function startComfyIfAvailable() {
         if (response.ok) {
           settings.comfyuiPath = installation.root;
           saveSettings();
+          imageReport('ComfyUI est actif sur le port 8188.');
           return;
         }
       } catch {}
+      if (exitInfo) break;
     }
-    imageReport('ComfyUI démarre lentement. Vérifie que son serveur est actif sur le port 8188.');
+
+    let details = '';
+    try {
+      details = fs.readFileSync(logFile, 'utf8').slice(-2200).trim();
+    } catch {}
+    imageReport(
+      'Échec du démarrage de ComfyUI. ' +
+      (exitInfo || 'Le serveur ne répond pas après 90 secondes.') +
+      (details ? '\nJournal :\n' + details : '') +
+      '\nJournal complet : ' + logFile
+    );
+  } catch (err) {
+    imageReport('Impossible de démarrer ComfyUI : ' + err.message + '\nJournal : ' + logFile);
   } finally {
+    if (logFd !== null) {
+      try { fs.closeSync(logFd); } catch {}
+    }
     comfyLaunchInProgress = false;
   }
 }
