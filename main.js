@@ -1232,6 +1232,58 @@ async function getRmbgSession() {
   return rmbgSessionPromise;
 }
 
+// Retire la zone de couleur de fond homogène reliée aux bords de l'image.
+// Ne fait rien si les bords ne sont pas assez uniformes (pas de fond plat détectable).
+function removeFlatBackground(rgb, alpha, width, height) {
+  const out = Buffer.from(alpha);
+  const pixelAt = (p) => [rgb[p * 3], rgb[p * 3 + 1], rgb[p * 3 + 2]];
+  const borderPixels = [];
+  for (let x = 0; x < width; x++) {
+    borderPixels.push(x, (height - 1) * width + x);
+  }
+  for (let y = 1; y < height - 1; y++) {
+    borderPixels.push(y * width, y * width + width - 1);
+  }
+  const channels = [0, 1, 2].map((c) => {
+    const values = borderPixels.map((p) => rgb[p * 3 + c]).sort((a, b) => a - b);
+    return values[Math.floor(values.length / 2)];
+  });
+  const distanceToBackground = (p) => {
+    const [r, g, b] = pixelAt(p);
+    return Math.hypot(r - channels[0], g - channels[1], b - channels[2]);
+  };
+  const TOLERANCE = 48;
+  const uniform = borderPixels.filter((p) => distanceToBackground(p) < TOLERANCE).length / borderPixels.length;
+  if (uniform < 0.85) return out;
+
+  const visited = new Uint8Array(width * height);
+  const queue = [];
+  for (const p of borderPixels) {
+    if (!visited[p] && distanceToBackground(p) < TOLERANCE) {
+      visited[p] = 1;
+      queue.push(p);
+    }
+  }
+  for (let head = 0; head < queue.length; head++) {
+    const p = queue[head];
+    out[p] = 0;
+    const x = p % width;
+    const y = (p - x) / width;
+    const neighbours = [];
+    if (x > 0) neighbours.push(p - 1);
+    if (x < width - 1) neighbours.push(p + 1);
+    if (y > 0) neighbours.push(p - width);
+    if (y < height - 1) neighbours.push(p + width);
+    for (const q of neighbours) {
+      if (!visited[q] && distanceToBackground(q) < TOLERANCE) {
+        visited[q] = 1;
+        queue.push(q);
+      }
+    }
+  }
+  return out;
+}
+
 async function removeImageBackground(imagePath) {
   const outputDirectory = path.resolve(sessionImageDirectory());
   const resolved = path.resolve(String(imagePath || ''));
@@ -1391,9 +1443,19 @@ async function removeImageBackground(imagePath) {
     .png()
     .toBuffer();
 
+  // Second passage sur les pixels finaux : si le fond est uni (couleur de bord homogène),
+  // on retire la zone de cette couleur reliée aux bords. BiRefNet garde parfois un
+  // fond plat comme premier plan ; ce passage corrige ce cas sans toucher au sujet.
+  const { data: rgb, info: rgbInfo } = await sharp(original).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+  const { data: alphaRaw } = await sharp(resizedMask).greyscale().raw().toBuffer({ resolveWithObject: true });
+  const cleanedAlpha = removeFlatBackground(rgb, alphaRaw, rgbInfo.width, rgbInfo.height);
+  const alphaPng = await sharp(cleanedAlpha, {
+    raw: { width: rgbInfo.width, height: rgbInfo.height, channels: 1 },
+  }).png().toBuffer();
+
   const transparentPng = await sharp(original)
     .removeAlpha()
-    .joinChannel(resizedMask)
+    .joinChannel(alphaPng)
     .png()
     .toBuffer();
 
