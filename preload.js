@@ -7,6 +7,13 @@ contextBridge.exposeInMainWorld('api', {
   chat: (messages, opts) => ipcRenderer.send('chat', { messages, ...opts }),
   transcribe: (buf) => ipcRenderer.invoke('transcribe', buf),
   runCommand: (command) => ipcRenderer.invoke('run-command', command),
+  computerUseStart: (task) => ipcRenderer.invoke('computer-use-start', task),
+  computerUseStop: () => ipcRenderer.invoke('computer-use-stop'),
+  computerUseApprove: (approved) => ipcRenderer.invoke('computer-use-approve', approved),
+  computerUseState: () => ipcRenderer.invoke('computer-use-state'),
+  onComputerUseStatus: (cb) => on('computer-use-status', cb),
+  onComputerUseHistory: (cb) => on('computer-use-history', cb),
+  onComputerUseConfirmation: (cb) => on('computer-use-confirmation', cb),
   launchApp: (nom) => ipcRenderer.invoke('launch-app', nom),
 
   // Paramètres et IA locale
