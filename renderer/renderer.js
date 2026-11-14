@@ -27,9 +27,10 @@ const PLACEHOLDER = "Demander n'importe quoi...";
 const MAX_IMAGE = 8 * 1024 * 1024;
 const MAX_TEXT = 200 * 1024;
 const TEXT_EXT = /\.(txt|md|csv|tsv|json|js|jsx|ts|tsx|py|html|css|xml|ya?ml|ini|log|bat|ps1|cfg|java|c|cpp|h|cs|go|rs|sql)$/i;
-const ACTION_RE = /```action\s*([\s\S]*?)```/;
+const ACTION_RE = /```(?:action|json)\s*([\s\S]*?)```/;
+const LEVEL_BARS = { low: 1, high: 2, max: 3 };
 
-let settings = { engine: 'ollama', model: 'qwen2.5vl:3b', level: 'low', autoUpdate: true, allowActions: false };
+let settings = { engine: 'ollama', model: 'qwen2.5vl:3b', level: 'low', autoUpdate: true, allowActions: true };
 let messages = [];
 let pending = [];
 let current = null; // bulle de réponse en cours
@@ -437,6 +438,8 @@ modelBtn.addEventListener('click', (e) => {
 // ---------- Niveau de réflexion (à côté du modèle) ----------
 function renderLevel() {
   levelName.textContent = LEVEL_LABELS[settings.level] || 'Bas';
+  const bars = LEVEL_BARS[settings.level] || 1;
+  document.querySelectorAll('#levelBars rect').forEach((r, i) => r.classList.toggle('off', i >= bars));
   levelMenu.replaceChildren();
   for (const [value, label] of Object.entries(LEVEL_LABELS)) {
     const b = document.createElement('button');
@@ -618,6 +621,12 @@ bridge.onFocus(() => {
   settings.engine = 'ollama';
   settings.model = 'qwen2.5vl:3b';
   if (!LEVEL_LABELS[settings.level]) settings.level = 'low';
+  // Une seule fois : activer les actions PC par défaut (chaque commande reste validée)
+  if (!settings.actionsOn) {
+    settings.allowActions = true;
+    settings.actionsOn = true;
+    bridge.setSettings({ allowActions: true, actionsOn: true });
+  }
   input.placeholder = PLACEHOLDER;
   renderMenu();
   renderLevel();

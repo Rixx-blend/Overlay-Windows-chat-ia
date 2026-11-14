@@ -32,18 +32,20 @@ const LEVELS = {
 
 const ACTION_HINT = `
 
-Tu peux agir sur le PC. Seulement si l'utilisateur le demande, propose UNE commande PowerShell dans un bloc exactement ainsi :
+Tu PEUX ouvrir des logiciels et agir sur le PC : ne dis jamais que tu ne peux pas le faire, et n'invente jamais de raccourci clavier.
+Quand l'utilisateur demande une action, réponds par une phrase courte, puis ajoute UNE commande PowerShell dans un bloc exactement ainsi :
 \`\`\`action
 {"tool":"powershell","command":"..."}
 \`\`\`
-Rien d'autre dans ce bloc. L'utilisateur validera avant toute exécution.`;
+Le bloc ne contient que ce JSON. Pour ouvrir un logiciel installé, utilise Start-Process. Blender est en général dans C:/Program Files/Blender Foundation, par exemple : {"tool":"powershell","command":"Start-Process (Get-ChildItem 'C:/Program Files/Blender Foundation' -Recurse -Filter blender.exe | Select-Object -First 1).FullName"}
+L'utilisateur validera avant toute exécution.`;
 
 const DEFAULTS = {
   engine: 'ollama',
   model: 'qwen2.5vl:3b',
   level: 'low',
   autoUpdate: true,
-  allowActions: false,
+  allowActions: true,
   setupDone: false,
 };
 
