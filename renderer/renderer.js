@@ -15,6 +15,10 @@ const modelName = $('modelName');
 const menu = $('menu');
 const settingsBtn = $('settingsBtn');
 const closePanel = $('closePanel');
+const imagesBtn = $('imagesBtn');
+const closeImages = $('closeImages');
+const imagePanel = $('imagePanel');
+
 
 // Seule IA utilisée : la locale (Ollama). Pas de clé API nécessaire pour le chat.
 const MODELS = { ollama: ['qwen2.5vl:3b'] };
@@ -100,7 +104,9 @@ input.addEventListener('blur', scheduleClose);
 
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
-  if (card.classList.contains('settings')) {
+  if (card.classList.contains('images')) {
+    closeImagePanel();
+  } else if (card.classList.contains('settings')) {
     closeSettings();
   } else if (!menu.hidden || !levelMenu.hidden) {
     menu.hidden = true;
@@ -579,6 +585,72 @@ function openSettings() {
   keepOpen();
   fillPanel();
 }
+
+// ---------- Générateur local Stable Diffusion XL ----------
+function closeImagePanel() {
+  card.classList.remove('images');
+  scheduleClose();
+}
+
+async function refreshSdxlStatus() {
+  const status = $('sdxlStatus');
+  status.textContent = 'Vérification de ComfyUI…';
+  try {
+    const result = await bridge.imageStatus();
+    status.textContent = result.message;
+    status.classList.toggle('status-ready', result.running && result.installed);
+    status.classList.toggle('status-error', !result.running || !result.installed);
+  } catch (err) {
+    status.textContent = 'État indisponible : ' + err.message;
+    status.classList.add('status-error');
+  }
+}
+
+function openImagePanel() {
+  card.classList.remove('settings');
+  card.classList.add('images');
+  keepOpen();
+  refreshSdxlStatus();
+}
+
+imagesBtn.addEventListener('click', openImagePanel);
+closeImages.addEventListener('click', closeImagePanel);
+$('checkSdxl').addEventListener('click', refreshSdxlStatus);
+
+$('generateImage').addEventListener('click', async () => {
+  const button = $('generateImage');
+  const result = $('imageResult');
+  button.disabled = true;
+  result.hidden = true;
+  $('imageProgress').textContent = 'Préparation…';
+  try {
+    const generated = await bridge.generateImage({
+      prompt: $('imagePrompt').value,
+      negative: $('imageNegative').value,
+      width: Number($('imageWidth').value),
+      height: Number($('imageHeight').value),
+      steps: Number($('imageSteps').value),
+    });
+    $('generatedImage').src = generated.dataUrl;
+    $('imageSavedPath').textContent = 'Enregistrée dans Images/OverlayIA';
+    result.hidden = false;
+    $('imageProgress').textContent = 'Génération terminée.';
+  } catch (err) {
+    $('imageProgress').textContent = 'Erreur : ' + err.message;
+    refreshSdxlStatus();
+  } finally {
+    button.disabled = false;
+  }
+});
+
+bridge.onImageProgress((message) => {
+  $('imageProgress').textContent = message;
+});
+
+$('openGeneratedImage').addEventListener('click', () => {
+  $('imageProgress').textContent = 'Image enregistrée dans Images/OverlayIA.';
+});
+
 
 function closeSettings() {
   card.classList.remove('settings');
