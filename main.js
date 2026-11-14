@@ -1437,6 +1437,12 @@ async function removeImageBackground(imagePath) {
   imageReport('Calcul du masque du sujet avec rembg (ISNet)…');
   const { mask, width, height } = await predictIsnetMask(sharp, ort, session, original);
 
+  // Diagnostic : si presque tout le masque est opaque, le modèle n'a pas trouvé de fond à retirer.
+  let opaque = 0;
+  for (let i = 0; i < mask.length; i++) if (mask[i] >= 128) opaque++;
+  const opaqueShare = opaque / mask.length;
+  if (opaqueShare > 0.95) log(`rembg : ${(opaqueShare * 100).toFixed(1)} % de l’image gardée comme sujet (fond non détecté).`);
+
   imageReport('Création du PNG transparent…');
   const alphaPng = await sharp(mask, { raw: { width, height, channels: 1 } }).png().toBuffer();
   const transparentPng = await sharp(original)
