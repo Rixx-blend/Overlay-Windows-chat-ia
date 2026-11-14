@@ -176,11 +176,19 @@
     if (stream) video.requestVideoFrameCallback(onVideoFrame);
   }
 
-  async function startStream() {
-    if (stream) return true;
+  let startPromise = null;
+  function startStream() {
+    if (stream) return Promise.resolve(true);
+    if (startPromise) return startPromise;
+    startPromise = doStart().finally(() => (startPromise = null));
+    return startPromise;
+  }
+
+  async function doStart() {
     try {
       const s = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 30, max: 30 } }, audio: false });
       stream = s;
+      s.getVideoTracks()[0].contentHint = 'motion';
       try {
         await s.getVideoTracks()[0].applyConstraints({
           width: { max: 960 },
@@ -327,7 +335,7 @@
     const key = [W, H, r.left, r.top, r.width, r.height, radius, live,
       geo ? [geo.x, geo.y, geo.dw, geo.dh].join(',') : '', snapVersion].join('|');
 
-    if (hasSrc && geo && srcW && (uploaded || key !== lastKey)) {
+    if (hasSrc && geo && srcW && (live || uploaded || key !== lastKey)) {
       lastKey = key;
       gl.viewport(0, 0, W, H);
       gl.clearColor(0, 0, 0, 0);
