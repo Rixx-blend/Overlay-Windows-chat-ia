@@ -78,14 +78,24 @@ function createComputerUse({ desktopCapturer, screen, execFile, clipboard, getWi
     emit('computer-use-status', { active: true, message: 'Analyse de l’écran…' });
     log('start', task);
     try {
+      const riskyTask = /supprim|effac|vider|formater|ecras|écras|remplac|envoy|publ|poster|acheter|payer|install|telecharg|télécharg|desinstall|désinstall|fermer.*session|deconnect|déconnect/i.test(String(task));
+      if (riskyTask) {
+        const approved = await new Promise((resolve) => {
+          pendingApproval = resolve;
+          emit('computer-use-confirmation', { reason: 'La tâche demandée peut modifier des données ou déclencher une action sensible : ' + String(task).slice(0, 220) });
+        });
+        pendingApproval = null;
+        if (!approved) throw new Error('Tâche sensible refusée.');
+      }
       const messages = [{ role: 'system', content: 'Tu es un agent de contrôle visuel d’ordinateur Windows. Tu observes la capture, choisis UNE action à la fois, puis vérifies le nouvel écran. Réponds uniquement en JSON valide avec {"type":"move|click|type|press_key|wait|confirm|finish","x":0,"y":0,"text":"","key":"ENTER","ms":700,"reason":""}. Coordonnées en pixels sur la capture. Ne prétends jamais avoir agi sans action. Pour supprimer, écraser, envoyer, publier, acheter, installer, télécharger un exécutable, modifier la sécurité ou fermer une session, demande d’abord une confirmation avec type=confirm et une raison claire. Ne demande jamais de mot de passe ni de code de connexion. Ne lance aucun terminal ni commande. Termine avec type=finish quand la tâche est achevée ou impossible.' }, { role: 'user', content: 'Tâche : ' + String(task).slice(0, 1000) }];
+      let finished = false;
       for (let step = 0; step < 18 && !stopped && id === runId; step++) {
         emit('computer-use-status', { active: true, message: 'Observation ' + (step + 1) + '/18' });
         const image = await screenshot();
         const response = await fetch('http://127.0.0.1:11434/api/chat', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           signal: AbortSignal.timeout(120000),
-          body: JSON.stringify({ model, stream: false, keep_alive: 0, messages: [...messages, { role: 'user', content: 'Observe l’écran actuel et retourne la prochaine action JSON.', images: [image] }], options: { temperature: 0.1, num_predict: 300, num_ctx: 8192 } }),
+          body: JSON.stringify({ model, stream: false, format: 'json', keep_alive: '3m', messages: [...messages, { role: 'user', content: 'Observe l’écran actuel et retourne la prochaine action JSON.', images: [image] }], options: { temperature: 0.1, num_predict: 300, num_ctx: 8192 } }),
         });
         if (!response.ok) throw new Error('Ollama HTTP ' + response.status);
         const data = await response.json();
@@ -96,14 +106,13 @@ function createComputerUse({ desktopCapturer, screen, execFile, clipboard, getWi
         const result = await input(action);
         log(action.type, result);
         emit('computer-use-status', { active: true, message: result });
-        if (action.type === 'finish') { log('done', 'Tâche terminée par le modèle.'); break; }
+        if (action.type === 'finish') { finished = true; log('done', 'Tâche terminée par le modèle.'); break; }
         messages.push({ role: 'assistant', content: JSON.stringify(action) }, { role: 'user', content: 'Résultat : ' + result + '. Observe maintenant l’écran mis à jour.' });
       }
-      if (stepLimitReached(id)) log('limit', 'Limite de 18 actions atteinte.');
+      if (!finished && !stopped && id === runId) log('limit', 'Limite de 18 actions atteinte.');
     } catch (error) { log('error', error.message); emit('computer-use-status', { active: false, message: error.message, error: true }); }
     finally { active = false; pendingApproval = null; emit('computer-use-status', { active: false, message: stopped ? 'Arrêté.' : 'Agent inactif.' }); }
   }
-  function stepLimitReached(id) { return id === runId && !stopped; }
   function stop() { stopped = true; runId++; if (pendingApproval) { pendingApproval(false); pendingApproval = null; } log('stop', 'Arrêt demandé.'); }
   function approve(value) { if (pendingApproval) pendingApproval(Boolean(value)); }
   return { start, stop, approve, getState: () => ({ active, history: history.slice(-100) }) };
