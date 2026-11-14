@@ -1181,8 +1181,24 @@ async function removeImageBackground(imagePath) {
   const metadata = await sharp(original).metadata();
   if (!metadata.width || !metadata.height) throw new Error('Dimensions de l’image illisibles.');
 
+  // Redimensionnement en gardant les proportions (letterbox sur fond gris neutre).
+  // L'ancien étirement forcé déformait la silhouette et décalait le masque
+  // sur les images non carrées (portrait, bannière).
+  const scale = RMBG_INPUT_SIZE / Math.max(metadata.width, metadata.height);
+  const contentWidth = Math.max(1, Math.round(metadata.width * scale));
+  const contentHeight = Math.max(1, Math.round(metadata.height * scale));
+  const offsetX = Math.floor((RMBG_INPUT_SIZE - contentWidth) / 2);
+  const offsetY = Math.floor((RMBG_INPUT_SIZE - contentHeight) / 2);
   const prepared = await sharp(original)
-    .resize(RMBG_INPUT_SIZE, RMBG_INPUT_SIZE, { fit: 'fill', kernel: 'lanczos3' })
+    .flatten({ background: '#808080' })
+    .resize(contentWidth, contentHeight, { fit: 'fill', kernel: 'lanczos3' })
+    .extend({
+      top: offsetY,
+      bottom: RMBG_INPUT_SIZE - contentHeight - offsetY,
+      left: offsetX,
+      right: RMBG_INPUT_SIZE - contentWidth - offsetX,
+      background: '#808080',
+    })
     .removeAlpha()
     .raw()
     .toBuffer();
@@ -1254,12 +1270,61 @@ async function removeImageBackground(imagePath) {
       throw new Error('Le sujet ne se détache pas du décor (plus de 90 % de l’image détectée comme sujet). Essaie une image avec un sujet plus contrasté ou un fond uni.');
     }
   }
+  // Ne garder que les zones de premier plan connexes au sujet principal :
+  // supprime les petits morceaux de décor que le modèle a pu garder.
+  const keepLargeComponents = (built) => {
+    const size = RMBG_INPUT_SIZE;
+    const visited = new Uint8Array(built.length);
+    const queue = new Int32Array(built.length);
+    const components = [];
+    for (let start = 0; start < built.length; start++) {
+      if (visited[start] || built[start] < 128) continue;
+      let head = 0;
+      let tail = 0;
+      queue[tail++] = start;
+      visited[start] = 1;
+      while (head < tail) {
+        const p = queue[head++];
+        const x = p % size;
+        const y = (p - x) / size;
+        const neighbours = [];
+        if (x > 0) neighbours.push(p - 1);
+        if (x < size - 1) neighbours.push(p + 1);
+        if (y > 0) neighbours.push(p - size);
+        if (y < size - 1) neighbours.push(p + size);
+        for (const q of neighbours) {
+          if (!visited[q] && built[q] >= 128) {
+            visited[q] = 1;
+            queue[tail++] = q;
+          }
+        }
+      }
+      components.push(queue.slice(0, tail));
+    }
+    if (!components.length) return built;
+    components.sort((a, b) => b.length - a.length);
+    const largest = components[0].length;
+    const kept = Buffer.alloc(built.length);
+    for (const component of components) {
+      if (component.length < largest * 0.05) break;
+      for (const p of component) kept[p] = built[p];
+    }
+    return kept;
+  };
+  mask = keepLargeComponents(mask);
+  foregroundPercent = foregroundShare(mask) * 100;
   log(`BiRefNet : premier plan estimé à ${foregroundPercent.toFixed(1)} % de l’image (logits ${minLogit.toFixed(2)} à ${maxLogit.toFixed(2)}).`);
 
   imageReport('Application du masque de premier plan et création du PNG transparent…');
+  // On découpe la zone utile (sans les bandes de remplissage) avant de revenir à la taille d'origine.
   const resizedMask = await sharp(mask, {
     raw: { width: RMBG_INPUT_SIZE, height: RMBG_INPUT_SIZE, channels: 1 },
-  }).resize(metadata.width, metadata.height, { fit: 'fill', kernel: 'lanczos3' }).png().toBuffer();
+  })
+    .extract({ left: offsetX, top: offsetY, width: contentWidth, height: contentHeight })
+    .resize(metadata.width, metadata.height, { fit: 'fill', kernel: 'lanczos3' })
+    .blur(0.6)
+    .png()
+    .toBuffer();
 
   const transparentPng = await sharp(original)
     .removeAlpha()
