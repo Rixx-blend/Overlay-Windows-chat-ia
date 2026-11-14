@@ -47,6 +47,8 @@
   },
   "dependencies": {
     "uiohook-napi": "^1.5.0",
-    "electron-updater": "^6.3.0"
+    "electron-updater": "^6.3.0",
+    "onnxruntime-node": "^1.22.0",
+    "sharp": "^0.34.5"
   }
 }
