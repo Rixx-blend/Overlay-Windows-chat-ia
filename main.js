@@ -1,4 +1,4 @@
-const { app, BrowserWindow, globalShortcut, ipcMain, screen, desktopCapturer, session, shell, dialog } = require('electron');
+const { app, BrowserWindow, globalShortcut, ipcMain, screen, desktopCapturer, session, shell, dialog, clipboard, nativeImage } = require('electron');
 const fs = require('fs');
 const crypto = require('crypto');
 const os = require('os');
@@ -1233,27 +1233,38 @@ async function removeImageBackground(imagePath) {
   };
 }
 
-function buildSdxlWorkflow({ prompt, negative, width, height, steps }) {
+function buildSdxlWorkflow({ prompt, negative, width, height, steps, referenceName }) {
   const seed = Math.floor(Math.random() * 2147483647);
-  return {
+  const latentNode = referenceName
+    ? { class_type: 'VAEEncode', inputs: { pixels: ['8', 0], vae: ['1', 2] } }
+    : { class_type: 'EmptyLatentImage', inputs: { width, height, batch_size: 1 } };
+  const workflow = {
     '1': { class_type: 'CheckpointLoaderSimple', inputs: { ckpt_name: SDXL_CHECKPOINT } },
     '2': { class_type: 'CLIPTextEncode', inputs: { text: prompt, clip: ['1', 1] } },
     '3': { class_type: 'CLIPTextEncode', inputs: { text: negative, clip: ['1', 1] } },
-    '4': { class_type: 'EmptyLatentImage', inputs: { width, height, batch_size: 1 } },
     '5': {
       class_type: 'KSampler',
       inputs: {
         seed, steps, cfg: 7, sampler_name: 'euler', scheduler: 'normal',
-        denoise: 1, model: ['1', 0], positive: ['2', 0], negative: ['3', 0], latent_image: ['4', 0],
+        denoise: referenceName ? 0.68 : 1, model: ['1', 0], positive: ['2', 0], negative: ['3', 0],
+        latent_image: referenceName ? ['9', 0] : ['4', 0],
       },
     },
     '6': { class_type: 'VAEDecode', inputs: { samples: ['5', 0], vae: ['1', 2] } },
     '7': { class_type: 'SaveImage', inputs: { filename_prefix: 'OverlayIA-SDXL', images: ['6', 0] } },
   };
+  if (referenceName) {
+    workflow['8'] = { class_type: 'LoadImage', inputs: { image: referenceName } };
+    workflow['9'] = latentNode;
+  } else {
+    workflow['4'] = latentNode;
+  }
+  return workflow;
 }
 
 async function generateLocalImage(options) {
   const prompt = String(options?.prompt || '').trim();
+  const referenceDataUrl = Array.isArray(options?.referenceImages) ? options.referenceImages[0] : null;
   const negative = String(options?.negative || '').trim();
   const requestedWidth = Number(options?.width);
   const requestedHeight = Number(options?.height);
@@ -1278,12 +1289,26 @@ async function generateLocalImage(options) {
     throw new Error('Checkpoint SDXL absent. Place sd_xl_base_1.0.safetensors dans ComfyUI/models/checkpoints puis actualise ComfyUI.');
   }
 
-  imageReport('Envoi du prompt à Stable Diffusion XL…');
+  let referenceName = null;
+  if (referenceDataUrl) {
+    const match = String(referenceDataUrl).match(/^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$/);
+    if (!match) throw new Error('Image de référence invalide.');
+    const imageBuffer = Buffer.from(match[2], 'base64');
+    if (imageBuffer.length > 8 * 1024 * 1024) throw new Error('Image de référence trop volumineuse (8 Mo max).');
+    const comfy = findComfyInstallation();
+    const inputDirectory = path.join(path.dirname(comfy.main), 'input');
+    fs.mkdirSync(inputDirectory, { recursive: true });
+    referenceName = 'overlayia-reference-' + crypto.randomUUID() + '.png';
+    const sharp = require('sharp');
+    await sharp(imageBuffer).rotate().resize(1024, 1024, { fit: 'inside', withoutEnlargement: true }).png().toFile(path.join(inputDirectory, referenceName));
+  }
+
+  imageReport(referenceName ? 'Analyse de l’image de référence et génération guidée…' : 'Envoi du prompt à Stable Diffusion XL…');
   const submitted = await comfyRequest('/prompt', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      prompt: buildSdxlWorkflow({ prompt, negative, width, height, steps }),
+      prompt: buildSdxlWorkflow({ prompt, negative, width, height, steps, referenceName }),
       client_id: 'overlayia-' + process.pid,
     }),
   });
@@ -1343,6 +1368,38 @@ ipcMain.handle('remove-background', async (_e, imagePath) => {
     throw error;
   }
 });
+function getTrustedGeneratedImage(imagePath) {
+  const outputDirectory = path.resolve(app.getPath('pictures'), 'OverlayIA');
+  const resolved = path.resolve(String(imagePath || ''));
+  if (!resolved.startsWith(outputDirectory + path.sep) || !fs.existsSync(resolved)) {
+    throw new Error('Image générée introuvable ou chemin non autorisé.');
+  }
+  return resolved;
+}
+
+ipcMain.handle('save-generated-image', async (_e, imagePath) => {
+  try {
+    const source = getTrustedGeneratedImage(imagePath);
+    const result = await dialog.showSaveDialog(win, {
+      defaultPath: path.join(app.getPath('downloads'), path.basename(source)),
+      filters: [{ name: 'Images PNG', extensions: ['png'] }],
+    });
+    if (result.canceled || !result.filePath) return { ok: false, canceled: true };
+    fs.copyFileSync(source, result.filePath);
+    return { ok: true, path: result.filePath };
+  } catch (error) { return { ok: false, message: error.message }; }
+});
+
+ipcMain.handle('copy-generated-image', async (_e, imagePath) => {
+  try {
+    const source = getTrustedGeneratedImage(imagePath);
+    const image = nativeImage.createFromPath(source);
+    if (image.isEmpty()) throw new Error('Image illisible.');
+    clipboard.writeImage(image);
+    return { ok: true };
+  } catch (error) { return { ok: false, message: error.message }; }
+});
+
 ipcMain.handle('open-generated-image', async () => {
   if (!lastGeneratedImage || !fs.existsSync(lastGeneratedImage)) return { ok: false, message: 'Aucune image générée dans cette session.' };
   const error = await shell.openPath(lastGeneratedImage);
