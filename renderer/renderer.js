@@ -271,6 +271,7 @@ async function handleDropFiles(files) {
   });
   target.addEventListener('drop', async (e) => {
     e.preventDefault();
+    e.stopPropagation();
     dragDepth = 0;
     card.classList.remove('file-drag-over');
     await handleDropFiles(e.dataTransfer.files);
@@ -771,8 +772,10 @@ async function generateImageInChat(prompt, referenceImages = []) {
     image.className = 'chat-generated-image';
     image.alt = 'Image générée : ' + cleanPrompt;
     image.src = generated.dataUrl;
-    lastGeneratedImagePath = generated.path || null;
-    lastGeneratedImageDataUrl = generated.dataUrl;
+    const generatedPath = generated.path || null;
+    const generatedDataUrl = generated.dataUrl;
+    lastGeneratedImagePath = generatedPath;
+    lastGeneratedImageDataUrl = generatedDataUrl;
     const caption = document.createElement('div');
     caption.className = 'generated-caption';
     caption.textContent = 'Image générée avec SDXL · enregistrée dans Images/OverlayIA';
@@ -788,16 +791,15 @@ async function generateImageInChat(prompt, referenceImages = []) {
       actions.appendChild(button);
     };
     makeAction('Télécharger', async () => {
-      const result = await bridge.saveGeneratedImage(lastGeneratedImagePath);
+      const result = await bridge.saveGeneratedImage(generatedPath);
       if (!result?.ok && result?.message) flash(result.message);
-    }, !lastGeneratedImagePath);
+    }, !generatedPath);
     makeAction('Copier', async () => {
-      const result = await bridge.copyGeneratedImage(lastGeneratedImagePath);
+      const result = await bridge.copyGeneratedImage(generatedPath);
       flash(result?.ok ? 'Image copiée' : (result?.message || 'Copie impossible'));
-    }, !lastGeneratedImagePath);
+    }, !generatedPath);
     makeAction('Modifier', () => {
-      editReferenceDataUrl = lastGeneratedImageDataUrl;
-      references = [{ name: 'Image à modifier', kind: 'image', url: lastGeneratedImageDataUrl }];
+      references = [{ name: 'Image à modifier', kind: 'image', url: generatedDataUrl }];
       renderReferences();
       setImageMode(true);
       input.value = '';
@@ -805,8 +807,8 @@ async function generateImageInChat(prompt, referenceImages = []) {
       input.focus();
     });
     makeAction('Supprimer le fond', () => {
-      if (lastGeneratedImagePath) removeBackgroundInChat(lastGeneratedImagePath);
-    }, !lastGeneratedImagePath);
+      if (generatedPath) removeBackgroundInChat(generatedPath);
+    }, !generatedPath);
     current.replaceChildren(image, caption, actions);
     messages.push({ role: 'assistant', content: 'Image générée avec succès.' });
   } catch (err) {
