@@ -1034,7 +1034,11 @@ async function getStartupModelsStatus() {
   let tags = await ollamaTags();
   // Ne démarre pas Ollama juste pour afficher l'état des modèles.
   const installedNames = (tags?.models || []).map((model) => model.name);
-  const qwenInstalled = installedNames.includes(OLLAMA_MODEL) || installedNames.includes(OLLAMA_MODEL + ':latest');
+  const manifestRoot = path.join(process.env.OLLAMA_MODELS || path.join(os.homedir(), '.ollama', 'models'), 'manifests', 'registry.ollama.ai', 'library');
+  const modelManifest = path.join(manifestRoot, 'qwen2.5vl', '3b');
+  const qwenInstalled = installedNames.includes(OLLAMA_MODEL)
+    || installedNames.includes(OLLAMA_MODEL + ':latest')
+    || fs.existsSync(modelManifest);
   const imageStatus = await getImageStatus();
   const checkpointDirectory = findComfyCheckpointDirectory();
   const checkpointPath = checkpointDirectory ? path.join(checkpointDirectory, SDXL_CHECKPOINT) : null;
