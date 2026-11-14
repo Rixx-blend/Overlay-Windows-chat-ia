@@ -18,6 +18,7 @@
     "artifactName": "OverlayIA-Setup-${version}.${ext}",
     "files": [
       "main.js",
+      "computer-use.js",
       "preload.js",
       "rembg.js",
       "renderer/**/*"
