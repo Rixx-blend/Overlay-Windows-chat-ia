@@ -19,8 +19,8 @@ const API_URL = 'https://api.openai.com/v1/chat/completions';
 const OLLAMA = 'http://127.0.0.1:11434';
 const OLLAMA_MODEL = 'qwen2.5vl:3b';
 const OLLAMA_INSTALLER_URL = 'https://ollama.com/download/OllamaSetup.exe';
-const RMBG_MODEL_URL = 'https://huggingface.co/briaai/RMBG-1.4/resolve/main/onnx/model_quantized.onnx';
-const RMBG_MODEL_NAME = 'model_quantized.onnx';
+const RMBG_MODEL_URL = 'https://huggingface.co/jmbell88/birefnet-onnx/resolve/main/birefnet.onnx';
+const RMBG_MODEL_NAME = 'birefnet.onnx';
 const RMBG_INPUT_SIZE = 1024;
 let rmbgSessionPromise = null;
 
@@ -1113,14 +1113,14 @@ async function downloadSdxlModel() {
 async function getRmbgModelPath() {
   const directory = path.join(app.getPath('userData'), 'models', 'rmbg');
   const modelPath = path.join(directory, RMBG_MODEL_NAME);
-  if (fs.existsSync(modelPath) && fs.statSync(modelPath).size > 35 * 1024 * 1024) return modelPath;
+  if (fs.existsSync(modelPath) && fs.statSync(modelPath).size > 850 * 1024 * 1024) return modelPath;
   fs.mkdirSync(directory, { recursive: true });
   const temporary = modelPath + '.download';
-  imageReport('Téléchargement du modèle de détourage RMBG-1.4 (environ 45 Mo)…');
+  imageReport('Téléchargement de BiRefNet ONNX (environ 932 Mo, uniquement la première fois)…');
   try {
     if (fs.existsSync(temporary)) fs.unlinkSync(temporary);
-    await downloadTo(RMBG_MODEL_URL, temporary, (percent) => imageReport('Modèle de détourage : ' + percent + ' %'));
-    if (fs.statSync(temporary).size < 35 * 1024 * 1024) throw new Error('Le modèle téléchargé semble incomplet.');
+    await downloadTo(RMBG_MODEL_URL, temporary, (percent) => imageReport('Téléchargement BiRefNet : ' + percent + ' %'));
+    if (fs.statSync(temporary).size < 850 * 1024 * 1024) throw new Error('Le modèle BiRefNet téléchargé semble incomplet (fichier attendu : environ 932 Mo).');
     fs.renameSync(temporary, modelPath);
     return modelPath;
   } catch (error) {
@@ -1135,10 +1135,15 @@ async function getRmbgSession() {
       const ort = require('onnxruntime-node');
       const modelPath = await getRmbgModelPath();
       const providers = typeof ort.getAvailableProviders === 'function' ? ort.getAvailableProviders() : ['CPUExecutionProvider'];
-      const executionProviders = providers.includes('CUDAExecutionProvider')
-        ? ['CUDAExecutionProvider', 'CPUExecutionProvider']
-        : ['CPUExecutionProvider'];
-      imageReport('Chargement du modèle RMBG-1.4…');
+      const preferredProvider = providers.includes('DmlExecutionProvider')
+        ? 'DmlExecutionProvider'
+        : providers.includes('CUDAExecutionProvider')
+          ? 'CUDAExecutionProvider'
+          : 'CPUExecutionProvider';
+      const executionProviders = preferredProvider === 'CPUExecutionProvider'
+        ? ['CPUExecutionProvider']
+        : [preferredProvider, 'CPUExecutionProvider'];
+      imageReport('Chargement de BiRefNet (premier chargement potentiellement long)…');
       const session = await ort.InferenceSession.create(modelPath, {
         executionProviders,
         graphOptimizationLevel: 'all',
@@ -1174,31 +1179,25 @@ async function removeImageBackground(imagePath) {
   const planeSize = RMBG_INPUT_SIZE * RMBG_INPUT_SIZE;
   const nchw = new Float32Array(3 * planeSize);
   for (let i = 0; i < planeSize; i++) {
-    nchw[i] = (prepared[i * 3] / 127.5) - 1;
-    nchw[planeSize + i] = (prepared[i * 3 + 1] / 127.5) - 1;
-    nchw[planeSize * 2 + i] = (prepared[i * 3 + 2] / 127.5) - 1;
+    nchw[i] = ((prepared[i * 3] / 255) - 0.485) / 0.229;
+    nchw[planeSize + i] = ((prepared[i * 3 + 1] / 255) - 0.456) / 0.224;
+    nchw[planeSize * 2 + i] = ((prepared[i * 3 + 2] / 255) - 0.406) / 0.225;
   }
 
-  imageReport('Analyse du sujet et des contours…');
+  imageReport('Analyse du sujet et des contours avec BiRefNet…');
   const inputName = session.inputNames[0];
   const inputTensor = new ort.Tensor('float32', nchw, [1, 3, RMBG_INPUT_SIZE, RMBG_INPUT_SIZE]);
   const outputMap = await session.run({ [inputName]: inputTensor });
   const output = outputMap[session.outputNames[0]];
   if (!output?.data?.length) throw new Error('Le modèle RMBG n’a renvoyé aucun masque.');
 
-  let min = Infinity, max = -Infinity;
-  for (let i = 0; i < output.data.length; i++) {
-    const value = Number(output.data[i]);
-    if (value < min) min = value;
-    if (value > max) max = value;
-  }
-  const useSigmoid = min < 0 || max > 1;
+  if (output.data.length < planeSize) throw new Error('Le masque BiRefNet a une dimension inattendue.');
   const mask = Buffer.alloc(planeSize);
   const source = output.data;
   for (let i = 0; i < planeSize; i++) {
-    let value = Number(source[Math.min(i, source.length - 1)]);
-    if (useSigmoid) value = 1 / (1 + Math.exp(-Math.max(-30, Math.min(30, value))));
-    mask[i] = Math.round(Math.max(0, Math.min(1, value)) * 255);
+    const logit = Number(source[i]);
+    const alpha = 1 / (1 + Math.exp(-Math.max(-30, Math.min(30, logit))));
+    mask[i] = Math.round(Math.max(0, Math.min(1, alpha)) * 255);
   }
 
   imageReport('Affinage des contours et création du PNG transparent…');
@@ -1216,7 +1215,7 @@ async function removeImageBackground(imagePath) {
   const destination = path.join(parsed.dir, parsed.name + '-sans-fond.png');
   fs.writeFileSync(destination, transparentPng);
   lastGeneratedImage = destination;
-  imageReport('Détourage terminé. PNG transparent enregistré.');
+  imageReport('Détourage BiRefNet terminé. PNG transparent enregistré.');
   return {
     ok: true,
     path: destination,
