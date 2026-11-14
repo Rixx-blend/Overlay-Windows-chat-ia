@@ -24,7 +24,7 @@ function createComputerUse({ desktopCapturer, screen, execFile, clipboard, getWi
     const display = screen.getPrimaryDisplay();
     const sources = await desktopCapturer.getSources({
       types: ['screen'],
-      thumbnailSize: { width: Math.min(1440, display.size.width), height: Math.min(900, display.size.height) },
+      thumbnailSize: { width: display.size.width, height: display.size.height },
     });
     const source = sources.find((item) => item.display_id === String(display.id)) || sources[0];
     if (!source || source.thumbnail.isEmpty()) throw new Error('Capture de l’écran indisponible.');
@@ -66,7 +66,7 @@ function createComputerUse({ desktopCapturer, screen, execFile, clipboard, getWi
     const display = screen.getPrimaryDisplay();
     if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0 || x >= display.size.width || y >= display.size.height) throw new Error('Coordonnées hors écran.');
     const command = type === 'click'
-      ? 'Add-Type -TypeDefinition "using System; using System.Runtime.InteropServices; public class CU { [DllImport(\"user32.dll\")] public static extern bool SetCursorPos(int x,int y); [DllImport(\"user32.dll\")] public static extern void mouse_event(uint f,uint x,uint y,uint d,UIntPtr e); }"; [CU]::SetCursorPos(' + x + ',' + y + '); Start-Sleep -Milliseconds 80; [CU]::mouse_event(2,0,0,0,[UIntPtr]::Zero); [CU]::mouse_event(4,0,0,0,[UIntPtr]::Zero)'
+      ? "Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class CU { [DllImport(\"user32.dll\")] public static extern bool SetCursorPos(int x,int y); [DllImport(\"user32.dll\")] public static extern void mouse_event(uint f,uint x,uint y,uint d,UIntPtr e); }'; [CU]::SetCursorPos(" + x + "," + y + "); Start-Sleep -Milliseconds 80; [CU]::mouse_event(2,0,0,0,[UIntPtr]::Zero); [CU]::mouse_event(4,0,0,0,[UIntPtr]::Zero)"
       : 'Add-Type -TypeDefinition "using System; using System.Runtime.InteropServices; public class CU { [DllImport(\"user32.dll\")] public static extern bool SetCursorPos(int x,int y); }"; [CU]::SetCursorPos(' + x + ',' + y + ')';
     await exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], { timeout: 5000, windowsHide: true });
     return type === 'click' ? 'Clic effectué en ' + x + ',' + y : 'Curseur déplacé en ' + x + ',' + y;
@@ -100,6 +100,7 @@ function createComputerUse({ desktopCapturer, screen, execFile, clipboard, getWi
         if (!response.ok) throw new Error('Ollama HTTP ' + response.status);
         const data = await response.json();
         const raw = String(data.message?.content || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/```$/, '').trim();
+        if (stopped || id !== runId) break;
         let action;
         try { action = JSON.parse(raw); } catch { throw new Error('Réponse visuelle illisible : ' + raw.slice(0, 200)); }
         if (!action || typeof action !== 'object' || Array.isArray(action)) throw new Error('Action visuelle invalide.');
