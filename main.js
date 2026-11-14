@@ -698,14 +698,17 @@ async function comfyRequest(route, options = {}, timeout = 10000) {
 }
 
 let comfyLaunchInProgress = false;
+let comfyInstallInProgress = false;
 
 function findComfyInstallation() {
   const home = os.homedir();
   const roots = [
     settings.comfyuiPath,
     path.join(home, 'ComfyUI_windows_portable'),
+    path.join(home, 'ComfyUI_windows_portable_nvidia'),
     path.join(home, 'Downloads', 'ComfyUI_windows_portable'),
     path.join(home, 'Desktop', 'ComfyUI_windows_portable'),
+    path.join(home, 'Documents', 'ComfyUI_windows_portable'),
     path.join(home, 'ComfyUI'),
     path.join(home, 'Downloads', 'ComfyUI'),
     path.join(home, 'Desktop', 'ComfyUI'),
@@ -715,19 +718,83 @@ function findComfyInstallation() {
     'D:\\ComfyUI',
   ].filter(Boolean);
   for (const root of [...new Set(roots.map((p) => path.resolve(p)))]) {
-    const portableBat = path.join(root, 'run_nvidia_gpu.bat');
+    const nvidiaBat = path.join(root, 'run_nvidia_gpu.bat');
+    const cpuBat = path.join(root, 'run_cpu.bat');
     const portablePython = path.join(root, 'python_embeded', 'python.exe');
     const portableMain = path.join(root, 'ComfyUI', 'main.py');
-    if (fs.existsSync(portableBat) || (fs.existsSync(portablePython) && fs.existsSync(portableMain))) {
-      return { root, bat: fs.existsSync(portableBat) ? portableBat : null, python: portablePython, main: portableMain };
+    if (fs.existsSync(nvidiaBat) || fs.existsSync(cpuBat) || (fs.existsSync(portablePython) && fs.existsSync(portableMain))) {
+      return {
+        root,
+        bat: fs.existsSync(nvidiaBat) ? nvidiaBat : (fs.existsSync(cpuBat) ? cpuBat : null),
+        cpuBat: fs.existsSync(cpuBat) ? cpuBat : null,
+        python: portablePython,
+        main: portableMain,
+      };
     }
     const regularMain = path.join(root, 'main.py');
     const venvPython = path.join(root, 'venv', 'Scripts', 'python.exe');
     if (fs.existsSync(regularMain) && fs.existsSync(venvPython)) {
-      return { root, bat: null, python: venvPython, main: regularMain };
+      return { root, bat: null, cpuBat: null, python: venvPython, main: regularMain };
     }
   }
   return null;
+}
+
+function hasNvidiaGpu() {
+  try {
+    const result = spawnSync('nvidia-smi', ['-L'], { windowsHide: true, encoding: 'utf8', timeout: 5000 });
+    return result.status === 0 && /GPU/i.test(result.stdout || '');
+  } catch {
+    return false;
+  }
+}
+
+async function installComfyPortable() {
+  if (comfyInstallInProgress) {
+    while (comfyInstallInProgress) await sleep(1000);
+    const existing = findComfyInstallation();
+    if (existing) return existing;
+    throw new Error('Installation de ComfyUI interrompue.');
+  }
+
+  const existing = findComfyInstallation();
+  if (existing) return existing;
+
+  comfyInstallInProgress = true;
+  const home = os.homedir();
+  const archive = path.join(os.tmpdir(), 'ComfyUI_windows_portable_nvidia.7z');
+  const downloadUrl = 'https://github.com/comfyanonymous/ComfyUI/releases/latest/download/ComfyUI_windows_portable_nvidia.7z';
+
+  try {
+    imageReport('ComfyUI absent. Téléchargement de ComfyUI Windows Portable…');
+    await downloadTo(downloadUrl, archive, (percent) => {
+      imageReport('Téléchargement de ComfyUI Portable : ' + percent + ' %');
+    });
+
+    imageReport('Extraction de ComfyUI dans le dossier utilisateur…');
+    await new Promise((resolve, reject) => {
+      execFile('tar.exe', ['-xf', archive, '-C', home], {
+        windowsHide: true,
+        maxBuffer: 10 * 1024 * 1024,
+      }, (error, stdout, stderr) => {
+        if (error) reject(new Error('Extraction de ComfyUI impossible. Vérifie que Windows dispose de tar.exe : ' + (stderr || error.message).slice(0, 400)));
+        else resolve();
+      });
+    });
+
+    const installation = findComfyInstallation();
+    if (!installation) throw new Error('L’archive a été extraite, mais le dossier ComfyUI_windows_portable est incomplet.');
+    settings.comfyuiPath = installation.root;
+    saveSettings();
+    imageReport('ComfyUI Portable installé dans ' + installation.root);
+    return installation;
+  } catch (err) {
+    imageReport('Installation de ComfyUI impossible : ' + err.message);
+    throw err;
+  } finally {
+    try { if (fs.existsSync(archive)) fs.unlinkSync(archive); } catch {}
+    comfyInstallInProgress = false;
+  }
 }
 
 async function startComfyIfAvailable() {
@@ -738,8 +805,9 @@ async function startComfyIfAvailable() {
   try {
     imageReport('Démarrage automatique de ComfyUI…');
     let child;
-    if (installation.bat) {
-      child = spawn('cmd.exe', ['/d', '/s', '/c', '"' + installation.bat + '"'], {
+    const launchBat = hasNvidiaGpu() ? installation.bat : (installation.cpuBat || installation.bat);
+    if (launchBat) {
+      child = spawn('cmd.exe', ['/d', '/s', '/c', '"' + launchBat + '"'], {
         cwd: installation.root, detached: true, stdio: 'ignore', windowsHide: true,
       });
     } else {
@@ -800,7 +868,7 @@ async function getImageStatus() {
       checkpoints: [],
       message: installed
         ? 'ComfyUI est installé mais son serveur ne démarre pas sur le port 8188'
-        : 'ComfyUI introuvable. Installe ComfyUI Windows Portable dans le dossier utilisateur.',
+        : 'ComfyUI sera installé automatiquement dans le dossier utilisateur au premier lancement de la génération.',
     };
   }
 }
@@ -930,9 +998,14 @@ async function generateLocalImage(options) {
   if (!prompt) throw new Error('Écris un prompt avant de lancer la génération.');
   if (prompt.length > 2000 || negative.length > 1000) throw new Error('Prompt trop long.');
 
-  const status = await getImageStatus();
+  let status = await getImageStatus();
+  if (!findComfyInstallation()) {
+    await installComfyPortable();
+    await startComfyIfAvailable();
+    status = await getImageStatus();
+  }
   if (!status.running) {
-    throw new Error('ComfyUI ne répond pas. Installe et démarre ComfyUI, puis relance la vérification.');
+    throw new Error('ComfyUI est installé mais ne démarre pas. Vérifie les pilotes graphiques et le fichier debug.log.');
   }
   if (!status.installed) {
     throw new Error('Checkpoint SDXL absent. Place sd_xl_base_1.0.safetensors dans ComfyUI/models/checkpoints puis actualise ComfyUI.');
