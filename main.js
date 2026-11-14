@@ -1278,9 +1278,10 @@ function buildSdxlWorkflow({ prompt, negative, width, height, steps, referenceNa
       inputs: {
         seed, steps, cfg: referenceName ? 7.5 : 7,
         sampler_name: 'dpmpp_2m', scheduler: 'karras',
-        // Denoise plus élevé en img2img : la consigne doit réellement transformer l'image.
-        // La composition de départ reste toutefois disponible dans le latent encodé.
-        denoise: referenceName ? 0.82 : 1,
+        // Denoise img2img : 0.82 recréait presque l'image (la référence était perdue).
+        // 0.65 garde silhouette, pose et cadrage tout en laissant la consigne transformer
+        // les détails (visage, chapeau, texture). À ajuster entre 0.55 et 0.75.
+        denoise: referenceName ? 0.65 : 1,
         model: ['1', 0], positive: ['2', 0], negative: ['3', 0],
         latent_image: referenceName ? ['9', 0] : ['4', 0],
       },
@@ -1363,9 +1364,10 @@ async function generateLocalImage(options) {
       .png().toBuffer();
     await fs.promises.writeFile(path.join(inputDirectory, referenceName), preparedReference);
   }
-  const workflowPrompt = referenceName
-    ? 'Edit the provided reference image according to the user instruction. Make the requested changes clearly visible and substantial. Preserve the original subject, framing, camera angle, and all details that the user did not ask to change. Do not simply recreate the same image. User instruction: ' + prompt
-    : prompt;
+  // SDXL est un modèle texte-image : il ne suit pas une consigne du type « Edit the image… ».
+  // Cette phrase consommait le budget CLIP (77 tokens) au détriment du prompt utilisateur,
+  // donc on envoie le prompt tel quel ; la fidélité à la référence vient du denoise (img2img).
+  const workflowPrompt = prompt;
 
   imageReport(referenceName ? 'Modification de l’image de référence…' : 'Envoi du prompt à Stable Diffusion XL…');
   const submitted = await comfyRequest('/prompt', {

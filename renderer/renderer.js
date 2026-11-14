@@ -852,14 +852,19 @@ async function generateImageInChat(prompt, referenceImages = []) {
       pixel: 'pixel art, crisp pixel clusters, limited color palette, retro game aesthetic',
     };
     const style = stylePrompts[imageStyle.value] || '';
+    const hasReference = referenceImages.length > 0;
+    // En modification, on ajoute des négatifs structurels pour éviter les doublons
+    // ou les membres en trop sur un personnage déjà présent dans la référence.
+    const negative = 'low quality, blurry, distorted, deformed, text, watermark'
+      + (hasReference ? ', extra limbs, duplicate, multiple heads, cropped' : '');
     const generated = await bridge.generateImage({
       prompt: style ? cleanPrompt + ', ' + style : cleanPrompt,
-      negative: 'low quality, blurry, distorted, deformed, text, watermark',
+      negative,
       width,
       height,
       steps: Number(imageSteps.value) || 25,
       referenceImages,
-      edit: referenceImages.length > 0,
+      edit: hasReference,
     });
     if (!generated?.dataUrl) throw new Error('ComfyUI n’a renvoyé aucune image.');
     if (stopLoader) { stopLoader(); stopLoader = null; }
