@@ -32,7 +32,7 @@ function createComputerUse({ desktopCapturer, screen, execFile, clipboard, getWi
   }
   async function input(action) {
     const type = action.type;
-    if (!['move', 'click', 'type', 'press_key', 'wait', 'finish', 'confirm'].includes(type)) {
+    if (!['move', 'click', 'double_click', 'drag', 'scroll', 'type', 'press_key', 'wait', 'finish', 'confirm'].includes(type)) {
       throw new Error('Action non autorisée : ' + String(type));
     }
     if (type === 'wait') { await sleep(Math.max(250, Math.min(5000, Number(action.ms) || 1000))); return 'Attente terminée'; }
@@ -65,11 +65,19 @@ function createComputerUse({ desktopCapturer, screen, execFile, clipboard, getWi
     const y = Math.round(Number(action.y));
     const display = screen.getPrimaryDisplay();
     if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0 || x >= display.size.width || y >= display.size.height) throw new Error('Coordonnées hors écran.');
-    const command = type === 'click'
+    const x2 = Math.round(Number(action.x2));
+    const y2 = Math.round(Number(action.y2));
+    if (type === 'drag' && (!Number.isFinite(x2) || !Number.isFinite(y2) || x2 < 0 || y2 < 0 || x2 >= display.size.width || y2 >= display.size.height)) throw new Error('Coordonnées de destination hors écran.');
+    const command = type === 'click' || type === 'double_click'
       ? "Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class CU { [DllImport(\"user32.dll\")] public static extern bool SetCursorPos(int x,int y); [DllImport(\"user32.dll\")] public static extern void mouse_event(uint f,uint x,uint y,uint d,UIntPtr e); }'; [CU]::SetCursorPos(" + x + "," + y + "); Start-Sleep -Milliseconds 80; [CU]::mouse_event(2,0,0,0,[UIntPtr]::Zero); [CU]::mouse_event(4,0,0,0,[UIntPtr]::Zero)"
-      : "Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class CU { [DllImport(\"user32.dll\")] public static extern bool SetCursorPos(int x,int y); }'; [CU]::SetCursorPos(" + x + "," + y + ")";
+      : type === 'drag'
+        ? "Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class CU { [DllImport(\"user32.dll\")] public static extern bool SetCursorPos(int x,int y); [DllImport(\"user32.dll\")] public static extern void mouse_event(uint f,uint x,uint y,uint d,UIntPtr e); }'; [CU]::SetCursorPos(" + x + "," + y + "); [CU]::mouse_event(2,0,0,0,[UIntPtr]::Zero); Start-Sleep -Milliseconds 120; [CU]::SetCursorPos(" + x2 + "," + y2 + "); Start-Sleep -Milliseconds 100; [CU]::mouse_event(4,0,0,0,[UIntPtr]::Zero)"
+        : type === 'scroll'
+          ? "Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class CU { [DllImport(\"user32.dll\")] public static extern bool SetCursorPos(int x,int y); [DllImport(\"user32.dll\")] public static extern void mouse_event(uint f,uint x,uint y,uint d,UIntPtr e); }'; [CU]::SetCursorPos(" + x + "," + y + "); [CU]::mouse_event(0x0800,0,0," + Math.max(-1200, Math.min(1200, Number(action.delta) || -120)) + ",[UIntPtr]::Zero)"
+          : "Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class CU { [DllImport(\"user32.dll\")] public static extern bool SetCursorPos(int x,int y); }'; [CU]::SetCursorPos(" + x + "," + y + ")";
     await exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], { timeout: 5000, windowsHide: true });
-    return type === 'click' ? 'Clic effectué en ' + x + ',' + y : 'Curseur déplacé en ' + x + ',' + y;
+    if (type === 'double_click') await exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')"], { timeout: 5000, windowsHide: true }).catch(() => {});
+    return type === 'click' || type === 'double_click' ? 'Clic effectué en ' + x + ',' + y : type === 'drag' ? 'Glissement effectué.' : type === 'scroll' ? 'Défilement effectué.' : 'Curseur déplacé en ' + x + ',' + y;
   }
   async function start(task) {
     if (active) throw new Error('Un agent est déjà en cours.');
@@ -87,7 +95,7 @@ function createComputerUse({ desktopCapturer, screen, execFile, clipboard, getWi
         pendingApproval = null;
         if (!approved) throw new Error('Tâche sensible refusée.');
       }
-      const messages = [{ role: 'system', content: 'Tu es un agent de contrôle visuel d’ordinateur Windows. Tu observes la capture, choisis UNE action à la fois, puis vérifies le nouvel écran. Réponds uniquement en JSON valide avec {"type":"move|click|type|press_key|wait|confirm|finish","x":0,"y":0,"text":"","key":"ENTER","ms":700,"reason":""}. Coordonnées en pixels sur la capture. Ne prétends jamais avoir agi sans action. Pour supprimer, écraser, envoyer, publier, acheter, installer, télécharger un exécutable, modifier la sécurité ou fermer une session, demande d’abord une confirmation avec type=confirm et une raison claire. Ne demande jamais de mot de passe ni de code de connexion. Ne lance aucun terminal ni commande. Termine avec type=finish quand la tâche est achevée ou impossible.' }, { role: 'user', content: 'Tâche : ' + String(task).slice(0, 1000) }];
+      const messages = [{ role: 'system', content: 'Tu es un agent de contrôle visuel d’ordinateur Windows. Tu observes la capture, choisis UNE action à la fois, puis vérifies le nouvel écran. Réponds uniquement en JSON valide avec {"type":"move|click|double_click|drag|scroll|type|press_key|wait|confirm|finish","x":0,"y":0,"text":"","key":"ENTER","ms":700,"reason":""}. Coordonnées en pixels sur la capture. Pour drag, utilise x2 et y2. Pour scroll, delta négatif = bas et positif = haut. Ne prétends jamais avoir agi sans action. Pour supprimer, écraser, envoyer, publier, acheter, installer, télécharger un exécutable, modifier la sécurité ou fermer une session, demande d’abord une confirmation avec type=confirm et une raison claire. Ne demande jamais de mot de passe ni de code de connexion. Ne lance aucun terminal ni commande. Termine avec type=finish quand la tâche est achevée ou impossible.' }, { role: 'user', content: 'Tâche : ' + String(task).slice(0, 1000) }];
       let finished = false;
       for (let step = 0; step < 18 && !stopped && id === runId; step++) {
         emit('computer-use-status', { active: true, message: 'Observation ' + (step + 1) + '/18' });
