@@ -68,7 +68,7 @@ def emergency_key(key):
     if key == keyboard.Key.esc:
         stop_event.set()
         emit("status", active=False, message="Arrêt d'urgence demandé avec Échap.")
-        return False
+        os._exit(130)
 
 
 def main():
