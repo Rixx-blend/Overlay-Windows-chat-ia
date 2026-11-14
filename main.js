@@ -1696,19 +1696,79 @@ ipcMain.handle('check-update', () => checkForUpdates());
 ipcMain.handle('get-version', () => app.getVersion());
 ipcMain.on('install-update', () => autoUpdater.quitAndInstall());
 
-// ---------- Transcription vocale (Whisper) ----------
-ipcMain.handle('transcribe', async (_e, buf) => {
-  const form = new FormData();
-  form.append('file', new Blob([buf], { type: 'audio/webm' }), 'audio.webm');
-  form.append('model', 'whisper-1');
-  form.append('language', 'fr');
-  const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY || ''}` },
-    body: form,
+// ---------- Transcription vocale locale (whisper.cpp + modèle ggml-base) ----------
+// Tout tourne sur le PC : l'audio n'est envoyé à aucun service. Le moteur et le modèle
+// sont téléchargés une seule fois, au premier usage de la dictée.
+const WHISPER_ZIP_URL = 'https://github.com/ggml-org/whisper.cpp/releases/download/b4938/whisper-bin-x64.zip';
+const WHISPER_MODEL_URL = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin';
+const WHISPER_MODEL_MIN_SIZE = 140 * 1024 * 1024;
+let whisperReady = null;
+
+function whisperDirectory() {
+  return path.join(app.getPath('userData'), 'models', 'whisper');
+}
+
+function findWhisperExe(directory) {
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const full = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      const found = findWhisperExe(full);
+      if (found) return found;
+    } else if (['whisper-cli.exe', 'main.exe'].includes(entry.name.toLowerCase())) {
+      return full;
+    }
+  }
+  return null;
+}
+
+function ensureWhisper() {
+  if (whisperReady) return whisperReady;
+  whisperReady = (async () => {
+    const dir = whisperDirectory();
+    fs.mkdirSync(dir, { recursive: true });
+    let exe = findWhisperExe(dir);
+    if (!exe) {
+      const zip = path.join(dir, 'whisper-bin-x64.zip');
+      report('Téléchargement du moteur de dictée (une seule fois)…');
+      await downloadTo(WHISPER_ZIP_URL, zip, (percent) => report('Moteur de dictée : ' + percent + ' %'));
+      const binDir = path.join(dir, 'bin');
+      await new Promise((resolve, reject) => {
+        execFile('powershell', ['-NoProfile', '-Command',
+          `Expand-Archive -LiteralPath '${zip}' -DestinationPath '${binDir}' -Force`],
+        { windowsHide: true }, (err) => (err ? reject(err) : resolve()));
+      });
+      exe = findWhisperExe(binDir);
+      if (!exe) throw new Error('Exécutable whisper introuvable après extraction.');
+    }
+    const modelPath = path.join(dir, 'ggml-base.bin');
+    if (!fs.existsSync(modelPath) || fs.statSync(modelPath).size < WHISPER_MODEL_MIN_SIZE) {
+      report('Téléchargement du modèle de dictée (environ 148 Mo, une seule fois)…');
+      const temporary = modelPath + '.download';
+      await downloadTo(WHISPER_MODEL_URL, temporary, (percent) => report('Modèle de dictée : ' + percent + ' %'));
+      fs.renameSync(temporary, modelPath);
+    }
+    return { exe, modelPath };
+  })().catch((err) => {
+    whisperReady = null;
+    throw err;
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return (await res.json()).text || '';
+  return whisperReady;
+}
+
+ipcMain.handle('transcribe', async (_e, wavBuffer) => {
+  const { exe, modelPath } = await ensureWhisper();
+  const wavPath = path.join(app.getPath('temp'), 'overlayia-dictee-' + Date.now() + '.wav');
+  fs.writeFileSync(wavPath, Buffer.from(wavBuffer));
+  try {
+    const stdout = await new Promise((resolve, reject) => {
+      execFile(exe, ['-m', modelPath, '-f', wavPath, '-l', 'fr', '-nt', '-np'],
+        { windowsHide: true, timeout: 120000, maxBuffer: 4 * 1024 * 1024 },
+        (err, out) => (err ? reject(err) : resolve(out)));
+    });
+    return String(stdout).trim();
+  } finally {
+    fs.rm(wavPath, { force: true }, () => {});
+  }
 });
 
 // ---------- Déplacement, souris, masquage ----------

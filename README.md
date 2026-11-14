@@ -34,7 +34,11 @@ Téléchargements : [ComfyUI](https://github.com/comfyanonymous/ComfyUI) · [Che
 
 ## Pièces jointes
 
-Images (analysées par le modèle), fichiers texte (inclus dans la conversation), autres fichiers (nom et type seulement). La dictée vocale utilise Whisper.
+Images (analysées par le modèle), fichiers texte (inclus dans la conversation), autres fichiers (nom et type seulement).
+
+## Dictée vocale (locale)
+
+La dictée utilise **whisper.cpp** avec le modèle `ggml-base` sur votre PC : l'audio n'est envoyé à aucun service. Au premier usage, l'application télécharge le moteur (environ quelques Mo) et le modèle (environ 148 Mo) une seule fois.
 
 ## Raccourcis
 

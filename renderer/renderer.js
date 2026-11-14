@@ -550,6 +550,48 @@ newchat.addEventListener('click', () => {
 // ---------- Dictée vocale ----------
 mic.addEventListener('click', toggleMic);
 
+// Convertit l'enregistrement (webm) en WAV mono 16 kHz 16 bits, format attendu par whisper.cpp.
+async function toWav16k(blob) {
+  const decodeContext = new AudioContext();
+  const decoded = await decodeContext.decodeAudioData(await blob.arrayBuffer());
+  await decodeContext.close();
+  const rate = 16000;
+  const offline = new OfflineAudioContext(1, Math.max(1, Math.ceil(decoded.duration * rate)), rate);
+  const source = offline.createBufferSource();
+  source.buffer = decoded;
+  source.connect(offline.destination);
+  source.start();
+  const samples = (await offline.startRendering()).getChannelData(0);
+  return encodeWav(samples, rate);
+}
+
+function encodeWav(samples, rate) {
+  const buffer = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buffer);
+  const writeText = (offset, text) => {
+    for (let i = 0; i < text.length; i++) view.setUint8(offset + i, text.charCodeAt(i));
+  };
+  writeText(0, 'RIFF');
+  view.setUint32(4, 36 + samples.length * 2, true);
+  writeText(8, 'WAVE');
+  writeText(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, rate, true);
+  view.setUint32(28, rate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeText(36, 'data');
+  view.setUint32(40, samples.length * 2, true);
+  let offset = 44;
+  for (let i = 0; i < samples.length; i++, offset += 2) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+  }
+  return buffer;
+}
+
 async function toggleMic() {
   if (transcribing) return;
   if (recorder) {
@@ -576,7 +618,7 @@ async function toggleMic() {
     mic.classList.add('busy');
     try {
       const blob = new Blob(chunks, { type: 'audio/webm' });
-      const text = await bridge.transcribe(await blob.arrayBuffer());
+      const text = await bridge.transcribe(await toWav16k(blob));
       input.value = (input.value ? input.value + ' ' : '') + text.trim();
     } catch {
       flash('Transcription impossible');
