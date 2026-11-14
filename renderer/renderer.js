@@ -935,7 +935,10 @@ bridge.onFocus(() => {
   try {
     const s = await bridge.startupModelsStatus();
     if (s.needsSetup) showSetupPrompt(s);
-  } catch {
-    showSetupPrompt({ qwenInstalled: false, sdxlInstalled: false, comfyRunning: false, needsSetup: true });
+  } catch (err) {
+    // Une erreur temporaire de détection ne doit jamais proposer de retélécharger les modèles.
+    console.error('Vérification des modèles locaux impossible :', err);
+    $('ollamaStatus').textContent = 'État inconnu';
+    $('sdxlStatus').textContent = 'Vérification de ComfyUI indisponible';
   }
 })();
