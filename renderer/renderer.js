@@ -243,7 +243,6 @@ function renderReferences() {
 }
 
 const referenceFiles = $('referenceFiles');
-$('addImageReference').addEventListener('click', () => referenceFiles.click());
 referenceFiles.addEventListener('change', async () => {
   const files = [...referenceFiles.files];
   referenceFiles.value = '';
@@ -723,8 +722,38 @@ imageFormat.addEventListener('change', () => {
 });
 [imageWidth, imageHeight].forEach((field) => field.addEventListener('input', () => {
   imageFormat.value = 'custom';
+  updateImageSettingSummaries();
 }));
-imageModeBtn.addEventListener('click', () => setImageMode(!imageMode));
+function updateImageSettingSummaries() {
+  $('resolutionSummary').textContent = imageWidth.value + ' × ' + imageHeight.value;
+  $('styleSummary').textContent = ({
+    none: 'Aucun', photorealistic: 'Photo', cinematic: 'Cinéma', '3d': '3D',
+    illustration: 'Illustration', anime: 'Anime', graphic: 'Graphique', pixel: 'Pixel'
+  })[imageStyle.value] || 'Aucun';
+  $('detailsSummary').textContent = ({20:'Rapide',25:'Équilibré',30:'Détaillé'})[imageSteps.value] || 'Équilibré';
+}
+[imageStyle, imageSteps].forEach((field) => field.addEventListener('change', updateImageSettingSummaries));
+imageFormat.addEventListener('change', updateImageSettingSummaries);
+document.querySelectorAll('[data-image-popover]').forEach((button) => {
+  button.addEventListener('click', (event) => {
+    event.stopPropagation();
+    const target = $('popover-' + button.dataset.imagePopover);
+    const shouldOpen = target.hidden;
+    document.querySelectorAll('.image-popover').forEach((popover) => { popover.hidden = true; });
+    target.hidden = !shouldOpen;
+  });
+});
+document.addEventListener('click', (event) => {
+  if (!event.target.closest('.image-setting-wrap')) {
+    document.querySelectorAll('.image-popover').forEach((popover) => { popover.hidden = true; });
+  }
+});
+$('addImageReference').addEventListener('click', () => referenceFiles.click());
+updateImageSettingSummaries();
+imageModeBtn.addEventListener('click', () => {
+  document.querySelectorAll('.image-popover').forEach((popover) => { popover.hidden = true; });
+  setImageMode(!imageMode);
+});
 
 async function generateImageInChat(prompt, referenceImages = []) {
   const cleanPrompt = String(prompt || '').trim();
