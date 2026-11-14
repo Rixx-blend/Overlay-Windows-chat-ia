@@ -206,7 +206,7 @@ async function addFiles(files, asReferences = false) {
       const attachment = await readAttachment(f);
       if (asReferences) {
         if (attachment.kind !== 'image') throw new Error('Les références doivent être des images.');
-        if (references.length >= 4) throw new Error('4 images de référence maximum.');
+        if (references.length >= 1) throw new Error('Une seule référence principale est acceptée par modification pour préserver sa qualité.');
         references.push(attachment);
       } else {
         pending.push(attachment);
