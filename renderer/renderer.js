@@ -783,7 +783,7 @@ function showSetupPrompt(status) {
   };
   sdxlButton.onclick = async () => {
     qwenButton.disabled = later.disabled = sdxlButton.disabled = true;
-    prog.textContent = 'Choisis ComfyUI/models/checkpoints. Le téléchargement fait environ 6,94 Go.';
+    prog.textContent = 'Téléchargement automatique dans le dossier checkpoints de ComfyUI (6,94 Go)…';
     try {
       const result = await bridge.downloadSdxlModel();
       if (result.cancelled) {
