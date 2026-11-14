@@ -1290,17 +1290,34 @@ async function generateLocalImage(options) {
   }
 
   let referenceName = null;
-  if (referenceDataUrl) {
-    const match = String(referenceDataUrl).match(/^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$/);
-    if (!match) throw new Error('Image de référence invalide.');
-    const imageBuffer = Buffer.from(match[2], 'base64');
-    if (imageBuffer.length > 8 * 1024 * 1024) throw new Error('Image de référence trop volumineuse (8 Mo max).');
+  const referenceImages = Array.isArray(options?.referenceImages) ? options.referenceImages.slice(0, 4) : [];
+  if (referenceImages.length) {
+    const sharp = require('sharp');
+    const decoded = referenceImages.map((dataUrl) => {
+      const match = String(dataUrl).match(/^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$/);
+      if (!match) throw new Error('Une image de référence est invalide.');
+      const buffer = Buffer.from(match[2], 'base64');
+      if (buffer.length > 8 * 1024 * 1024) throw new Error('Une image de référence dépasse 8 Mo.');
+      return buffer;
+    });
     const comfy = findComfyInstallation();
     const inputDirectory = path.join(path.dirname(comfy.main), 'input');
     fs.mkdirSync(inputDirectory, { recursive: true });
     referenceName = 'overlayia-reference-' + crypto.randomUUID() + '.png';
-    const sharp = require('sharp');
-    await sharp(imageBuffer).rotate().resize(1024, 1024, { fit: 'inside', withoutEnlargement: true }).png().toFile(path.join(inputDirectory, referenceName));
+    let referenceBuffer;
+    if (decoded.length === 1) {
+      referenceBuffer = await sharp(decoded[0]).rotate()
+        .resize(1024, 1024, { fit: 'contain', background: '#777777' }).png().toBuffer();
+    } else {
+      const tiles = await Promise.all(decoded.map(async (buffer, index) => ({
+        input: await sharp(buffer).rotate().resize(512, 512, { fit: 'contain', background: '#777777' }).png().toBuffer(),
+        left: (index % 2) * 512,
+        top: Math.floor(index / 2) * 512,
+      })));
+      referenceBuffer = await sharp({ create: { width: 1024, height: 1024, channels: 3, background: '#777777' } })
+        .composite(tiles).png().toBuffer();
+    }
+    await fs.promises.writeFile(path.join(inputDirectory, referenceName), referenceBuffer);
   }
 
   imageReport(referenceName ? 'Analyse de l’image de référence et génération guidée…' : 'Envoi du prompt à Stable Diffusion XL…');
