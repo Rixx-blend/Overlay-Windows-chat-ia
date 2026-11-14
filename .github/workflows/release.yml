@@ -57,5 +57,15 @@ jobs:
           git config user.email "github-actions@users.noreply.github.com"
           git add package.json package-lock.json
           git commit -m "Version $VERSION [skip ci]"
-          git pull --rebase origin main
-          git push
+          # Réessayer si un commit externe arrive pendant la publication.
+          for attempt in 1 2 3 4 5; do
+            git fetch origin main
+            git rebase origin/main
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+            echo "Push refusé (concurrence), nouvelle tentative $attempt/5..."
+            sleep 2
+          done
+          echo "Impossible de pousser la version après 5 tentatives."
+          exit 1
