@@ -367,9 +367,9 @@ function submit() {
   const imagePrompt = !pending.length ? (imageMode ? text : extractImagePrompt(text)) : null;
   // Les demandes en plusieurs étapes passent par le moteur Computer Use, pas par le résolveur d'applications.
   const multiStepComputerTask =
-    /\\b(?:ouvre|ouvrir|lance|lancer|d[ée]marre|d[ée]marrer)\\b/i.test(text) &&
-    /(?:\\bet\\b|\\bpuis\\b|\\bensuite\\b|,)/i.test(text) &&
-    /\\b(?:trouve|cherche|supprime|efface|clique|d[ée]place|renomme|copie|colle|ouvre|lance)\\b/i.test(text);
+    /\b(?:ouvre|ouvrir|lance|lancer|d[ée]marre|d[ée]marrer)\b/i.test(text) &&
+    /(?:\bet\b|\bpuis\b|\bensuite\b|,)/i.test(text) &&
+    /\b(?:trouve|cherche|supprime|efface|clique|d[ée]place|renomme|copie|colle|ouvre|lance)\b/i.test(text);
   if (multiStepComputerTask && !pending.length && settings.allowActions) {
     input.value = '';
     addBubble('user', text);
