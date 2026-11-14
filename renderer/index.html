@@ -141,9 +141,14 @@
 
         <h3>Recherche web</h3>
         <label class="chk"><input type="checkbox" id="webSearch"> Chercher sur internet avant de répondre</label>
-        <label class="image-field">Clé API Tavily
-          <input type="password" id="tavilyKey" placeholder="tvly-…" autocomplete="off" spellcheck="false">
-        </label>
+        <div class="key-field">
+          <span>Clé API Tavily</span>
+          <div class="key-field-row">
+            <input type="password" id="tavilyKey" placeholder="Colle ta clé tvly-…" autocomplete="off" spellcheck="false">
+            <button class="key-toggle" id="toggleTavilyKey" type="button">Afficher</button>
+          </div>
+          <span class="key-hint">Stockée uniquement sur ton PC.</span>
+        </div>
         <button class="pill" id="getTavilyKey" type="button">Obtenir ma clé Tavily (gratuite, sans carte)</button>
       </section>
 

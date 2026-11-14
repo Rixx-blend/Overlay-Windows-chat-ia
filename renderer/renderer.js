@@ -1028,6 +1028,13 @@ $('tavilyKey').addEventListener('change', (e) => {
 
 $('getTavilyKey').addEventListener('click', () => bridge.openTavilyKeys());
 
+$('toggleTavilyKey').addEventListener('click', (e) => {
+  const field = $('tavilyKey');
+  const showing = field.type === 'text';
+  field.type = showing ? 'password' : 'text';
+  e.currentTarget.textContent = showing ? 'Afficher' : 'Masquer';
+});
+
 $('installAI').addEventListener('click', async () => {
   const btn = $('installAI');
   btn.disabled = true;
