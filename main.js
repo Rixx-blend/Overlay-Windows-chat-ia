@@ -59,6 +59,15 @@ let liveGlass = true; // true : verre live, overlay masqué des captures ; false
 let settings = { ...DEFAULTS };
 let firstRun = false;
 let lastGeneratedImage = null;
+// Les images générées ne sont plus enregistrées dans Images : elles vivent dans un
+// dossier temporaire de session, supprimé à la fermeture. C'est à l'utilisateur de
+// les télécharger via le bouton Enregistrer.
+let tempReferencePath = null;
+function sessionImageDirectory() {
+  const directory = path.join(app.getPath('temp'), 'OverlayIA-session');
+  fs.mkdirSync(directory, { recursive: true });
+  return directory;
+}
 let dragOffset = null;
 let capturing = false;
 let snipActive = false;
@@ -1168,7 +1177,7 @@ async function getRmbgSession() {
 }
 
 async function removeImageBackground(imagePath) {
-  const outputDirectory = path.resolve(app.getPath('pictures'), 'OverlayIA');
+  const outputDirectory = path.resolve(sessionImageDirectory());
   const resolved = path.resolve(String(imagePath || ''));
   if (!resolved.startsWith(outputDirectory + path.sep) || !fs.existsSync(resolved)) {
     throw new Error('Image source introuvable ou chemin non autorisé.');
@@ -1365,7 +1374,8 @@ function buildSdxlWorkflow({ prompt, negative, width, height, steps, referenceNa
       },
     },
     '6': { class_type: 'VAEDecode', inputs: { samples: ['5', 0], vae: ['1', 2] } },
-    '7': { class_type: 'SaveImage', inputs: { filename_prefix: 'OverlayIA-SDXL', images: ['6', 0] } },
+    // PreviewImage : ComfyUI n'écrit pas le résultat dans son dossier de sortie.
+    '7': { class_type: 'PreviewImage', inputs: { images: ['6', 0] } },
   };
   if (referenceName) {
     workflow['8'] = { class_type: 'LoadImage', inputs: { image: referenceName } };
@@ -1448,6 +1458,7 @@ async function generateLocalImage(options) {
       .resize(referenceWidth, referenceHeight, { fit: 'fill', kernel: 'lanczos3' })
       .png().toBuffer();
     await fs.promises.writeFile(path.join(inputDirectory, referenceName), preparedReference);
+    tempReferencePath = path.join(inputDirectory, referenceName);
   }
   // SDXL est un modèle texte-image : il ne suit pas une consigne du type « Edit the image… ».
   // Cette phrase consommait le budget CLIP (77 tokens) au détriment du prompt utilisateur,
@@ -1492,15 +1503,14 @@ async function generateLocalImage(options) {
   });
   const imageResponse = await comfyRequest('/view?' + query.toString(), {}, 120000);
   const buffer = Buffer.from(await imageResponse.arrayBuffer());
-  const outputDir = path.join(app.getPath('pictures'), 'OverlayIA');
-  fs.mkdirSync(outputDir, { recursive: true });
-  // La graine utilisée est inscrite dans le nom du fichier pour pouvoir relancer la même génération.
+  // Fichier temporaire de session uniquement : rien n'est enregistré dans Images.
+  // La graine utilisée est inscrite dans le nom pour pouvoir relancer la même génération.
   const usedSeed = seed;
   const safeName = 'SDXL-' + new Date().toISOString().replace(/[:.]/g, '-') + '-seed' + usedSeed + '.png';
-  const outputPath = path.join(outputDir, safeName);
+  const outputPath = path.join(sessionImageDirectory(), safeName);
   fs.writeFileSync(outputPath, buffer);
   lastGeneratedImage = outputPath;
-  imageReport('Image générée et enregistrée.');
+  imageReport('Image générée. Utilise Enregistrer pour la télécharger.');
   return { ok: true, path: outputPath, seed: usedSeed, dataUrl: 'data:image/png;base64,' + buffer.toString('base64') };
 }
 
@@ -1510,6 +1520,11 @@ ipcMain.handle('generate-image', async (_e, options) => {
     return await generateLocalImage(options);
   } finally {
     comfyGenerationInProgress = false;
+    // La copie de référence envoyée à ComfyUI n'est plus utile une fois la génération finie.
+    if (tempReferencePath) {
+      fs.rm(tempReferencePath, { force: true }, () => {});
+      tempReferencePath = null;
+    }
     scheduleComfyIdleShutdown();
   }
 });
@@ -1522,7 +1537,7 @@ ipcMain.handle('remove-background', async (_e, imagePath) => {
   }
 });
 function getTrustedGeneratedImage(imagePath) {
-  const outputDirectory = path.resolve(app.getPath('pictures'), 'OverlayIA');
+  const outputDirectory = path.resolve(sessionImageDirectory());
   const resolved = path.resolve(String(imagePath || ''));
   if (!resolved.startsWith(outputDirectory + path.sep) || !fs.existsSync(resolved)) {
     throw new Error('Image générée introuvable ou chemin non autorisé.');
@@ -1781,4 +1796,8 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => app.quit());
-app.on('will-quit', () => globalShortcut.unregisterAll());
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll();
+  // Nettoyage du dossier temporaire de session (images non enregistrées).
+  fs.rmSync(path.join(app.getPath('temp'), 'OverlayIA-session'), { recursive: true, force: true });
+});

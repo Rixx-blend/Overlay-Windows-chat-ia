@@ -899,7 +899,7 @@ async function generateImageInChat(prompt, referenceImages = []) {
     lastGeneratedImageDataUrl = generatedDataUrl;
     const caption = document.createElement('div');
     caption.className = 'generated-caption';
-    caption.textContent = 'Image générée avec SDXL · enregistrée dans Images/OverlayIA';
+    caption.textContent = 'Image générée avec SDXL · non enregistrée, utilise Enregistrer pour la télécharger';
     const actions = document.createElement('div');
     actions.className = 'generated-actions';
     const actionIcons = {
@@ -978,7 +978,7 @@ async function removeBackgroundInChat(imagePath) {
     image.src = result.dataUrl;
     const caption = document.createElement('div');
     caption.className = 'generated-caption';
-    caption.textContent = 'Fond supprimé · PNG avec transparence · enregistré dans Images/OverlayIA';
+    caption.textContent = 'Fond supprimé · PNG avec transparence · non enregistré, utilise Enregistrer pour la télécharger';
     resultBubble.replaceChildren(image, caption);
     lastGeneratedImagePath = result.path || lastGeneratedImagePath;
     messages.push({ role: 'assistant', content: 'Arrière-plan supprimé. PNG transparent enregistré.' });
