@@ -115,7 +115,10 @@
         <button class="btn dark generate-btn" id="generateImage">Générer l’image</button>
         <div class="prog" id="imageProgress" aria-live="polite"></div>
         <div class="image-result" id="imageResult" hidden>
-          <img id="generatedImage" alt="Image générée avec Stable Diffusion XL">
+          <div class="image-reveal" id="imageReveal">
+            <img id="generatedImage" alt="Image générée avec Stable Diffusion XL">
+            <div class="image-pixel-grid" id="imagePixelGrid" aria-hidden="true"></div>
+          </div>
           <div class="image-result-footer">
             <span id="imageSavedPath" class="muted"></span>
             <button class="btn" id="openGeneratedImage">Ouvrir</button>
