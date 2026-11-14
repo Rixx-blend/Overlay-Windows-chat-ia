@@ -26,6 +26,14 @@ jobs:
           node-version: "22"
           cache: npm
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Vérifier la syntaxe Python
+        shell: bash
+        run: python -m compileall -q computer_use
+
       - name: Incrémenter la version (patch)
         shell: bash
         run: |
