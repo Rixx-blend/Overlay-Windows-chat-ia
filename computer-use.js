@@ -5,6 +5,7 @@ const path = require('path');
 
 function createComputerUse({ getWindow }) {
   let child = null;
+  let bootstrapChild = null;
   let active = false;
   let history = [];
   let outputBuffer = '';
@@ -63,16 +64,21 @@ function createComputerUse({ getWindow }) {
   function runProcess(command, args, options = {}) {
     return new Promise((resolve, reject) => {
       const proc = spawn(command, args, { windowsHide: true, ...options });
+      bootstrapChild = proc;
       let stdout = '';
       let stderr = '';
       proc.stdout?.on('data', (chunk) => { stdout += chunk.toString(); if (stdout.length > 300000) stdout = stdout.slice(-300000); });
       proc.stderr?.on('data', (chunk) => { stderr += chunk.toString(); if (stderr.length > 300000) stderr = stderr.slice(-300000); });
-      proc.on('error', reject);
-      proc.on('close', (code) => code === 0 ? resolve({ stdout, stderr }) : reject(new Error((stderr || stdout || 'Processus terminé avec le code ' + code).slice(-3000))));
+      proc.on('error', (error) => { if (bootstrapChild === proc) bootstrapChild = null; reject(error); });
+      proc.on('close', (code) => {
+        if (bootstrapChild === proc) bootstrapChild = null;
+        if (code === 0) resolve({ stdout, stderr });
+        else reject(new Error((stderr || stdout || 'Processus terminé avec le code ' + code).slice(-3000)));
+      });
     });
   }
 
-  async function ensureDependencies(python, requirements) {
+  async function ensureDependencies(python, requirements, isCancelled) {
     const check = spawnSync(python.command, [...python.prefixArgs, '-c', 'import openai, mss, PIL, pyautogui, pynput, pyperclip'], {
       encoding: 'utf8', windowsHide: true, timeout: 20000,
     });
@@ -81,13 +87,16 @@ function createComputerUse({ getWindow }) {
     try {
       await runProcess(python.command, [...python.prefixArgs, '-m', 'pip', '--version'], { cwd: path.dirname(requirements), stdio: ['ignore', 'pipe', 'pipe'] });
     } catch {
+      if (isCancelled()) return;
       await runProcess(python.command, [...python.prefixArgs, '-m', 'ensurepip', '--upgrade'], { cwd: path.dirname(requirements), stdio: ['ignore', 'pipe', 'pipe'] });
     }
+    if (isCancelled()) return;
     try {
       await runProcess(python.command, [...python.prefixArgs, '-m', 'pip', 'install', '--user', '--disable-pip-version-check', '-r', requirements], {
         cwd: path.dirname(requirements), stdio: ['ignore', 'pipe', 'pipe'],
       });
     } catch (firstError) {
+      if (isCancelled()) return;
       await runProcess(python.command, [...python.prefixArgs, '-m', 'pip', 'install', '--disable-pip-version-check', '-r', requirements], {
         cwd: path.dirname(requirements), stdio: ['ignore', 'pipe', 'pipe'],
       });
@@ -146,7 +155,7 @@ function createComputerUse({ getWindow }) {
       const python = findPython();
       if (!python) throw new Error('Python 3.10 ou supérieur est requis. Installe Python ou utilise le Python portable de ComfyUI.');
       emit('computer-use-status', { active: true, message: 'Vérification des modules Python (' + python.version + ')…' });
-      await ensureDependencies(python, files.requirements);
+      await ensureDependencies(python, files.requirements, () => id !== runId);
       if (id !== runId) return;
       const logs = path.join(app.getPath('userData'), 'computer-use-logs');
       fs.mkdirSync(logs, { recursive: true });
@@ -187,6 +196,7 @@ function createComputerUse({ getWindow }) {
         else emit('computer-use-status', { active: false, message: 'Agent inactif.' });
       });
     } catch (error) {
+      if (id !== runId) return;
       active = false;
       emit('computer-use-status', { active: false, error: true, message: error.message });
       throw error;
@@ -195,6 +205,10 @@ function createComputerUse({ getWindow }) {
 
   function stop() {
     runId++;
+    if (bootstrapChild) {
+      try { bootstrapChild.kill(); } catch {}
+      bootstrapChild = null;
+    }
     if (!child) {
       active = false;
       emit('computer-use-status', { active: false, message: 'Arrêt demandé.' });
