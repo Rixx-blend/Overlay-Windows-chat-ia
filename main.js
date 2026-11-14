@@ -912,11 +912,14 @@ async function startComfyIfAvailable() {
     if (installation.python && installation.main &&
         fs.existsSync(installation.python) && fs.existsSync(installation.main)) {
       const gpuAvailable = hasNvidiaGpu();
-      const args = ['-s', installation.main, '--listen', '127.0.0.1', '--port', '8188', '--windows-standalone-build'];
+      const args = ['-s', installation.main, '--listen', '127.0.0.1', '--port', '8188'];
+      if (installation.python.toLowerCase().includes('python_embeded')) args.push('--windows-standalone-build');
       if (!gpuAvailable) args.push('--cpu');
-      fs.writeSync(logFd, 'Racine ComfyUI : ' + installation.root + '\\n');
-      fs.writeSync(logFd, 'Python : ' + installation.python + '\\n');
-      fs.writeSync(logFd, 'GPU NVIDIA détecté : ' + gpuAvailable + '\\n');
+      if (logFd !== null) {
+        fs.writeSync(logFd, 'Racine ComfyUI : ' + installation.root + '\n');
+        fs.writeSync(logFd, 'Python : ' + installation.python + '\n');
+        fs.writeSync(logFd, 'GPU NVIDIA détecté : ' + gpuAvailable + '\n');
+      }
       child = spawn(installation.python, args, {
         cwd: installation.root,
         detached: true,
