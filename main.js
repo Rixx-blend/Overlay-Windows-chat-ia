@@ -867,10 +867,14 @@ async function startComfyIfAvailable() {
       : (installation.cpuBat || installation.bat);
 
     if (launchBat) {
-      // Ne pas utiliser /s : cmd.exe retire alors les guillemets du chemin
-      // et casse les installations situées dans un dossier contenant des espaces.
-      child = spawn('cmd.exe', ['/d', '/c', '"' + launchBat + '"'], {
-        cwd: installation.root,
+      // Passer le chemin comme argument distinct : ne pas ajouter manuellement
+      // des guillemets, Node les échappe déjà pour Windows et cmd les interprète mal.
+      // Les scripts du dossier "advanced" utilisent le dossier portable parent comme cwd.
+      const launchCwd = path.basename(installation.root).toLowerCase() === 'advanced'
+        ? path.dirname(installation.root)
+        : installation.root;
+      child = spawn('cmd.exe', ['/d', '/c', 'call', launchBat], {
+        cwd: launchCwd,
         detached: true,
         stdio: ['ignore', logFd ?? 'ignore', logFd ?? 'ignore'],
         windowsHide: true,
