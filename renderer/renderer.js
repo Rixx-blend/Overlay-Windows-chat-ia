@@ -282,11 +282,43 @@ function submit() {
   startAI();
 }
 
+// Indicateur de réflexion : grille de pixels en vague, libellé qui scintille, temps écoulé
+function makeLoader(label) {
+  const wrap = document.createElement('div');
+  wrap.className = 'thinking';
+  const grid = document.createElement('span');
+  grid.className = 'px-grid';
+  for (let i = 0; i < 9; i++) {
+    const r = Math.floor(i / 3);
+    const c = i % 3;
+    const cell = document.createElement('span');
+    cell.style.animationDelay = (c + Math.abs(r - 1)) * 90 + 'ms';
+    grid.appendChild(cell);
+  }
+  const text = document.createElement('span');
+  text.className = 'shimmer';
+  text.textContent = label;
+  const time = document.createElement('span');
+  time.className = 'timer';
+  const t0 = performance.now();
+  const tick = setInterval(() => {
+    const s = (performance.now() - t0) / 1000;
+    time.textContent = s < 60 ? s.toFixed(1) + 's' : `${Math.floor(s / 60)}m ${(s % 60).toFixed(1)}s`;
+  }, 100);
+  wrap.append(grid, text, time);
+  return { el: wrap, stop: () => clearInterval(tick) };
+}
+
+let stopLoader = null;
+
 function startAI() {
   current = addBubble('ai', '');
   aiText = '';
   busy = true;
   send.classList.add('busy');
+  const loader = makeLoader('Réflexion');
+  stopLoader = loader.stop;
+  current.replaceChildren(loader.el);
   bridge.chat(messages, {
     engine: settings.engine,
     model: settings.model,
@@ -297,6 +329,10 @@ function startAI() {
 
 bridge.onToken((t) => {
   if (!current) return;
+  if (stopLoader) {
+    stopLoader();
+    stopLoader = null;
+  }
   aiText += t;
   current.textContent = aiText;
   chat.scrollTop = chat.scrollHeight;
@@ -305,6 +341,10 @@ bridge.onToken((t) => {
 bridge.onDone((err) => {
   busy = false;
   send.classList.remove('busy');
+  if (stopLoader) {
+    stopLoader();
+    stopLoader = null;
+  }
   if (!current) return;
   if (err) {
     current.classList.add('err');
