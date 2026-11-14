@@ -83,6 +83,7 @@ def main():
     listener.start()
     history = []
     screenshots = []
+    repeated_errors = {}
     log_dir = Path(args.logs)
     log_dir.mkdir(parents=True, exist_ok=True)
     emit("status", active=True, message="Initialisation du moteur Python…")
@@ -123,11 +124,18 @@ def main():
                     stop_event.set()
             except Exception as exc:
                 save_debug_capture(shot["image"], log_dir, decision)
-                history.append("Action " + str(step) + " échouée : " + str(exc)[:300])
-                emit("history", item={"time": datetime.now(timezone.utc).isoformat(), "type": "error", "detail": str(exc)[:500]})
-                emit("status", active=True, message="Action impossible : " + str(exc)[:200])
-                if "PyAutoGUI fail-safe" in str(exc):
+                error_text = str(exc)[:300]
+                error_key = str(action) + "|" + error_text
+                repeated_errors[error_key] = repeated_errors.get(error_key, 0) + 1
+                history.append("Action " + str(step) + " échouée : " + error_text)
+                emit("history", item={"time": datetime.now(timezone.utc).isoformat(), "type": "error", "detail": error_text})
+                fatal = isinstance(exc, (ValueError, FileNotFoundError, PermissionError))
+                repeated = repeated_errors[error_key] >= 2
+                if fatal or repeated or "PyAutoGUI fail-safe" in error_text:
                     stop_event.set()
+                    emit("status", active=False, message="Arrêt après une erreur non récupérable : " + error_text[:180], error=True)
+                else:
+                    emit("status", active=True, message="Action impossible : " + error_text[:180])
         else:
             if not stop_event.is_set():
                 emit("status", active=False, message="Limite de 30 actions atteinte.")
