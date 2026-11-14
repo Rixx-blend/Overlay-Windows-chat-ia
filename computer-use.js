@@ -182,7 +182,8 @@ function createComputerUse({ getWindow }) {
         if (outputBuffer.trim()) handleLine(outputBuffer.trim(), id);
         child = null;
         active = false;
-        if (code !== 0) emit('computer-use-status', { active: false, error: true, message: 'Le moteur Python s’est arrêté (code ' + code + '). Consulte les journaux.' });
+        if (code === 130) emit('computer-use-status', { active: false, message: 'Arrêt d’urgence effectué avec Échap.' });
+        else if (code !== 0) emit('computer-use-status', { active: false, error: true, message: 'Le moteur Python s’est arrêté (code ' + code + '). Consulte les journaux.' });
         else emit('computer-use-status', { active: false, message: 'Agent inactif.' });
       });
     } catch (error) {
