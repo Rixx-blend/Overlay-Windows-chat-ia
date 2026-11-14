@@ -1198,22 +1198,43 @@ async function removeImageBackground(imagePath) {
   const inputName = session.inputNames[0];
   const inputTensor = new ort.Tensor('float32', nchw, [1, 3, RMBG_INPUT_SIZE, RMBG_INPUT_SIZE]);
   const outputMap = await session.run({ [inputName]: inputTensor });
-  const output = outputMap[session.outputNames[0]];
+  // Le modèle jmbell88/BiRefNet-ONNX renvoie des logits [1,1,1024,1024].
+  // Prendre la sortie nommée "logits" (ou la dernière sortie annoncée) évite
+  // de traiter par erreur un tenseur intermédiaire comme masque final.
+  const outputName = session.outputNames.includes('logits')
+    ? 'logits'
+    : session.outputNames[session.outputNames.length - 1];
+  const output = outputMap[outputName];
   if (!output?.data?.length) throw new Error('Le modèle RMBG n’a renvoyé aucun masque.');
 
-  if (output.data.length < planeSize) throw new Error('Le masque BiRefNet a une dimension inattendue.');
+  if (output.data.length !== planeSize) {
+    throw new Error(`Masque BiRefNet invalide : ${output.data.length} valeurs au lieu de ${planeSize}.`);
+  }
+
   const mask = Buffer.alloc(planeSize);
   const source = output.data;
+  let minLogit = Infinity;
+  let maxLogit = -Infinity;
   for (let i = 0; i < planeSize; i++) {
     const logit = Number(source[i]);
-    const alpha = 1 / (1 + Math.exp(-Math.max(-30, Math.min(30, logit))));
-    mask[i] = Math.round(Math.max(0, Math.min(1, alpha)) * 255);
+    if (!Number.isFinite(logit)) throw new Error('Le modèle BiRefNet a produit un masque invalide.');
+    if (logit < minLogit) minLogit = logit;
+    if (logit > maxLogit) maxLogit = logit;
+    const probability = 1 / (1 + Math.exp(-Math.max(-30, Math.min(30, logit))));
+    // Léger renforcement du contraste du masque : fond plus transparent,
+    // sujet plus opaque, avec une transition douce pour conserver les cheveux.
+    const t = Math.max(0, Math.min(1, (probability - 0.35) / 0.30));
+    const alpha = t * t * (3 - 2 * t);
+    mask[i] = Math.round(alpha * 255);
+  }
+  if (maxLogit - minLogit < 0.05) {
+    throw new Error('Le masque BiRefNet est presque uniforme. Le détourage a été interrompu pour éviter un PNG avec fond opaque.');
   }
 
   imageReport('Affinage des contours et création du PNG transparent…');
   const resizedMask = await sharp(mask, {
     raw: { width: RMBG_INPUT_SIZE, height: RMBG_INPUT_SIZE, channels: 1 },
-  }).resize(metadata.width, metadata.height, { fit: 'fill', kernel: 'lanczos3' }).blur(0.3).png().toBuffer();
+  }).resize(metadata.width, metadata.height, { fit: 'fill', kernel: 'lanczos3' }).png().toBuffer();
 
   const transparentPng = await sharp(original)
     .removeAlpha()
