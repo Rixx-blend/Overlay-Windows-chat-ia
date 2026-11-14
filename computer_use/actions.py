@@ -66,12 +66,19 @@ def _windows_user_folder(registry_name, fallback_names):
         try:
             import winreg
             key_path = r"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\User Shell Folders"
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path) as key:
-                value, _ = winreg.QueryValueEx(key, registry_name)
-            value = os.path.expandvars(str(value))
-            candidate = Path(value).expanduser()
-            if candidate.exists():
-                return candidate
+            registry_names = [registry_name]
+            if registry_name == "Downloads":
+                registry_names.append("{374DE290-123F-4565-9164-39C4925E467B}")
+            for registry_value in registry_names:
+                try:
+                    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path) as key:
+                        value, _ = winreg.QueryValueEx(key, registry_value)
+                    value = os.path.expandvars(str(value))
+                    candidate = Path(value).expanduser()
+                    if candidate.exists():
+                        return candidate
+                except OSError:
+                    continue
         except (OSError, ImportError):
             pass
     home = Path.home()
