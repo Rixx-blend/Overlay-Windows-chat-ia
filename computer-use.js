@@ -100,7 +100,6 @@ function createComputerUse({ getWindow }) {
     if (id !== runId) return;
     if (message.event === 'status') {
       emit('computer-use-status', message);
-      if (!message.active) active = false;
       return;
     }
     if (message.event === 'history') {
@@ -174,6 +173,7 @@ function createComputerUse({ getWindow }) {
       child.on('error', (error) => {
         if (id !== runId) return;
         active = false;
+        child = null;
         emit('computer-use-status', { active: false, error: true, message: 'Démarrage Python impossible : ' + error.message });
       });
       child.on('close', (code) => {
@@ -192,7 +192,12 @@ function createComputerUse({ getWindow }) {
   }
 
   function stop() {
-    if (!child) { active = false; return; }
+    runId++;
+    if (!child) {
+      active = false;
+      emit('computer-use-status', { active: false, message: 'Arrêt demandé.' });
+      return;
+    }
     try { if (child.stdin.writable) child.stdin.write('{"type":"stop"}\n'); } catch {}
     child.kill();
     child = null;
