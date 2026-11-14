@@ -1134,20 +1134,30 @@ async function getRmbgSession() {
     rmbgSessionPromise = (async () => {
       const ort = require('onnxruntime-node');
       const modelPath = await getRmbgModelPath();
-      const providers = typeof ort.getAvailableProviders === 'function' ? ort.getAvailableProviders() : ['CPUExecutionProvider'];
-      const preferredProvider = providers.includes('DmlExecutionProvider')
-        ? 'DmlExecutionProvider'
-        : providers.includes('CUDAExecutionProvider')
-          ? 'CUDAExecutionProvider'
-          : 'CPUExecutionProvider';
-      const executionProviders = preferredProvider === 'CPUExecutionProvider'
-        ? ['CPUExecutionProvider']
-        : [preferredProvider, 'CPUExecutionProvider'];
       imageReport('Chargement de BiRefNet (premier chargement potentiellement long)…');
-      const session = await ort.InferenceSession.create(modelPath, {
-        executionProviders,
-        graphOptimizationLevel: 'all',
-      });
+      let session;
+      if (process.platform === 'win32') {
+        try {
+          // DirectML accélère le modèle sur les GPU NVIDIA, AMD et Intel compatibles.
+          session = await ort.InferenceSession.create(modelPath, {
+            executionProviders: ['dml', 'cpu'],
+            graphOptimizationLevel: 'all',
+            executionMode: 'sequential',
+            enableMemPattern: false,
+          });
+        } catch (gpuError) {
+          imageReport('Accélération GPU indisponible, passage sur le processeur…');
+          session = await ort.InferenceSession.create(modelPath, {
+            executionProviders: ['cpu'],
+            graphOptimizationLevel: 'all',
+          });
+        }
+      } else {
+        session = await ort.InferenceSession.create(modelPath, {
+          executionProviders: ['cpu'],
+          graphOptimizationLevel: 'all',
+        });
+      }
       return { ort, session };
     })().catch((error) => {
       rmbgSessionPromise = null;
