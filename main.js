@@ -19,6 +19,10 @@ const API_URL = 'https://api.openai.com/v1/chat/completions';
 const OLLAMA = 'http://127.0.0.1:11434';
 const OLLAMA_MODEL = 'qwen2.5vl:3b';
 const OLLAMA_INSTALLER_URL = 'https://ollama.com/download/OllamaSetup.exe';
+const RMBG_MODEL_URL = 'https://huggingface.co/briaai/RMBG-1.4/resolve/main/onnx/model_quantized.onnx';
+const RMBG_MODEL_NAME = 'model_quantized.onnx';
+const RMBG_INPUT_SIZE = 1024;
+let rmbgSessionPromise = null;
 
 // Fenêtre de taille fixe (assez grande pour la carte ouverte et les paramètres)
 const WIN_W = 620;
@@ -1106,6 +1110,120 @@ async function downloadSdxlModel() {
   }
 }
 
+async function getRmbgModelPath() {
+  const directory = path.join(app.getPath('userData'), 'models', 'rmbg');
+  const modelPath = path.join(directory, RMBG_MODEL_NAME);
+  if (fs.existsSync(modelPath) && fs.statSync(modelPath).size > 35 * 1024 * 1024) return modelPath;
+  fs.mkdirSync(directory, { recursive: true });
+  const temporary = modelPath + '.download';
+  imageReport('Téléchargement du modèle de détourage RMBG-1.4 (environ 45 Mo)…');
+  try {
+    if (fs.existsSync(temporary)) fs.unlinkSync(temporary);
+    await downloadTo(RMBG_MODEL_URL, temporary, (percent) => imageReport('Modèle de détourage : ' + percent + ' %'));
+    if (fs.statSync(temporary).size < 35 * 1024 * 1024) throw new Error('Le modèle téléchargé semble incomplet.');
+    fs.renameSync(temporary, modelPath);
+    return modelPath;
+  } catch (error) {
+    try { if (fs.existsSync(temporary)) fs.unlinkSync(temporary); } catch {}
+    throw error;
+  }
+}
+
+async function getRmbgSession() {
+  if (!rmbgSessionPromise) {
+    rmbgSessionPromise = (async () => {
+      const ort = require('onnxruntime-node');
+      const modelPath = await getRmbgModelPath();
+      const providers = typeof ort.getAvailableProviders === 'function' ? ort.getAvailableProviders() : ['CPUExecutionProvider'];
+      const executionProviders = providers.includes('CUDAExecutionProvider')
+        ? ['CUDAExecutionProvider', 'CPUExecutionProvider']
+        : ['CPUExecutionProvider'];
+      imageReport('Chargement du modèle RMBG-1.4…');
+      const session = await ort.InferenceSession.create(modelPath, {
+        executionProviders,
+        graphOptimizationLevel: 'all',
+      });
+      return { ort, session };
+    })().catch((error) => {
+      rmbgSessionPromise = null;
+      throw error;
+    });
+  }
+  return rmbgSessionPromise;
+}
+
+async function removeImageBackground(imagePath) {
+  const outputDirectory = path.resolve(app.getPath('pictures'), 'OverlayIA');
+  const resolved = path.resolve(String(imagePath || ''));
+  if (!resolved.startsWith(outputDirectory + path.sep) || !fs.existsSync(resolved)) {
+    throw new Error('Image source introuvable ou chemin non autorisé.');
+  }
+
+  const sharp = require('sharp');
+  const { ort, session } = await getRmbgSession();
+  imageReport('Préparation de l’image pour le détourage…');
+  const original = await sharp(resolved).rotate().png().toBuffer();
+  const metadata = await sharp(original).metadata();
+  if (!metadata.width || !metadata.height) throw new Error('Dimensions de l’image illisibles.');
+
+  const prepared = await sharp(original)
+    .resize(RMBG_INPUT_SIZE, RMBG_INPUT_SIZE, { fit: 'fill', kernel: 'lanczos3' })
+    .removeAlpha()
+    .raw()
+    .toBuffer();
+  const planeSize = RMBG_INPUT_SIZE * RMBG_INPUT_SIZE;
+  const nchw = new Float32Array(3 * planeSize);
+  for (let i = 0; i < planeSize; i++) {
+    nchw[i] = (prepared[i * 3] / 127.5) - 1;
+    nchw[planeSize + i] = (prepared[i * 3 + 1] / 127.5) - 1;
+    nchw[planeSize * 2 + i] = (prepared[i * 3 + 2] / 127.5) - 1;
+  }
+
+  imageReport('Analyse du sujet et des contours…');
+  const inputName = session.inputNames[0];
+  const inputTensor = new ort.Tensor('float32', nchw, [1, 3, RMBG_INPUT_SIZE, RMBG_INPUT_SIZE]);
+  const outputMap = await session.run({ [inputName]: inputTensor });
+  const output = outputMap[session.outputNames[0]];
+  if (!output?.data?.length) throw new Error('Le modèle RMBG n’a renvoyé aucun masque.');
+
+  let min = Infinity, max = -Infinity;
+  for (let i = 0; i < output.data.length; i++) {
+    const value = Number(output.data[i]);
+    if (value < min) min = value;
+    if (value > max) max = value;
+  }
+  const useSigmoid = min < 0 || max > 1;
+  const mask = Buffer.alloc(planeSize);
+  const source = output.data;
+  for (let i = 0; i < planeSize; i++) {
+    let value = Number(source[Math.min(i, source.length - 1)]);
+    if (useSigmoid) value = 1 / (1 + Math.exp(-Math.max(-30, Math.min(30, value))));
+    mask[i] = Math.round(Math.max(0, Math.min(1, value)) * 255);
+  }
+
+  imageReport('Affinage des contours et création du PNG transparent…');
+  const resizedMask = await sharp(mask, {
+    raw: { width: RMBG_INPUT_SIZE, height: RMBG_INPUT_SIZE, channels: 1 },
+  }).resize(metadata.width, metadata.height, { fit: 'fill', kernel: 'lanczos3' }).blur(0.25).png().toBuffer();
+
+  const transparentPng = await sharp(original)
+    .removeAlpha()
+    .joinChannel(resizedMask)
+    .png()
+    .toBuffer();
+
+  const parsed = path.parse(resolved);
+  const destination = path.join(parsed.dir, parsed.name + '-sans-fond.png');
+  fs.writeFileSync(destination, transparentPng);
+  lastGeneratedImage = destination;
+  imageReport('Détourage terminé. PNG transparent enregistré.');
+  return {
+    ok: true,
+    path: destination,
+    dataUrl: 'data:image/png;base64,' + transparentPng.toString('base64'),
+  };
+}
+
 function buildSdxlWorkflow({ prompt, negative, width, height, steps }) {
   const seed = Math.floor(Math.random() * 2147483647);
   return {
@@ -1128,9 +1246,12 @@ function buildSdxlWorkflow({ prompt, negative, width, height, steps }) {
 async function generateLocalImage(options) {
   const prompt = String(options?.prompt || '').trim();
   const negative = String(options?.negative || '').trim();
-  const allowedSizes = [512, 768, 1024];
-  const width = allowedSizes.includes(Number(options?.width)) ? Number(options.width) : 1024;
-  const height = allowedSizes.includes(Number(options?.height)) ? Number(options.height) : 1024;
+  const requestedWidth = Number(options?.width);
+  const requestedHeight = Number(options?.height);
+  const validDimensions = (value) => Number.isInteger(value) && value >= 512 && value <= 1536 && value % 8 === 0;
+  const width = validDimensions(requestedWidth) ? requestedWidth : 1024;
+  const height = validDimensions(requestedHeight) ? requestedHeight : 1024;
+  if (width * height > 1500000) throw new Error('Résolution trop élevée : limite de 1,5 mégapixel pour éviter un manque de mémoire.');
   const steps = Math.min(40, Math.max(10, Number(options?.steps) || 25));
   if (!prompt) throw new Error('Écris un prompt avant de lancer la génération.');
   if (prompt.length > 2000 || negative.length > 1000) throw new Error('Prompt trop long.');
@@ -1203,6 +1324,14 @@ ipcMain.handle('generate-image', async (_e, options) => {
   } finally {
     comfyGenerationInProgress = false;
     scheduleComfyIdleShutdown();
+  }
+});
+ipcMain.handle('remove-background', async (_e, imagePath) => {
+  try {
+    return await removeImageBackground(imagePath);
+  } catch (error) {
+    imageReport('Détourage impossible : ' + error.message);
+    throw error;
   }
 });
 ipcMain.handle('open-generated-image', async () => {
