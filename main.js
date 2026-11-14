@@ -1246,6 +1246,182 @@ async function getRmbgSession() {
   return rmbgSessionPromise;
 }
 
+function buildSdxlWorkflow({ prompt, negative, width, height, steps, referenceName, seed: requestedSeed, denoise }) {
+  const seed = Number.isInteger(requestedSeed) ? requestedSeed : Math.floor(Math.random() * 2147483647);
+  const latentNode = referenceName
+    ? { class_type: 'VAEEncode', inputs: { pixels: ['8', 0], vae: ['1', 2] } }
+    : { class_type: 'EmptyLatentImage', inputs: { width, height, batch_size: 1 } };
+  const workflow = {
+    '1': { class_type: 'CheckpointLoaderSimple', inputs: { ckpt_name: SDXL_CHECKPOINT } },
+    '2': { class_type: 'CLIPTextEncode', inputs: { text: prompt, clip: ['1', 1] } },
+    '3': { class_type: 'CLIPTextEncode', inputs: { text: negative, clip: ['1', 1] } },
+    '5': {
+      class_type: 'KSampler',
+      inputs: {
+        seed, steps, cfg: referenceName ? 7.5 : 7,
+        sampler_name: 'dpmpp_2m', scheduler: 'karras',
+        // Denoise img2img réglé par l'utilisateur (défaut 0.6 côté interface).
+        denoise: referenceName ? denoise : 1,
+        model: ['1', 0], positive: ['2', 0], negative: ['3', 0],
+        latent_image: referenceName ? ['9', 0] : ['4', 0],
+      },
+    },
+    '6': { class_type: 'VAEDecode', inputs: { samples: ['5', 0], vae: ['1', 2] } },
+    // PreviewImage : ComfyUI n'écrit pas le résultat dans son dossier de sortie.
+    '7': { class_type: 'PreviewImage', inputs: { images: ['6', 0] } },
+  };
+  if (referenceName) {
+    workflow['8'] = { class_type: 'LoadImage', inputs: { image: referenceName } };
+    workflow['9'] = latentNode;
+  } else {
+    workflow['4'] = latentNode;
+  }
+  return workflow;
+}
+
+async function generateLocalImage(options) {
+  const prompt = String(options?.prompt || '').trim();
+  const referenceDataUrl = Array.isArray(options?.referenceImages) ? options.referenceImages[0] : null;
+  const negative = String(options?.negative || '').trim();
+  const requestedWidth = Number(options?.width);
+  const requestedHeight = Number(options?.height);
+  const validDimensions = (value) => Number.isInteger(value) && value >= 512 && value <= 1536 && value % 8 === 0;
+  const width = validDimensions(requestedWidth) ? requestedWidth : 1024;
+  const height = validDimensions(requestedHeight) ? requestedHeight : 1024;
+  if (width * height > 1500000) throw new Error('Résolution trop élevée : limite de 1,5 mégapixel pour éviter un manque de mémoire.');
+  const steps = Math.min(40, Math.max(10, Number(options?.steps) || 25));
+  // Graine fixée par l'utilisateur pour comparer deux prompts sur la même base ; sinon aléatoire.
+  const requestedSeed = Number(options?.seed);
+  const seed = Number.isInteger(requestedSeed) && requestedSeed >= 0 && requestedSeed <= 2147483647
+    ? requestedSeed
+    : Math.floor(Math.random() * 2147483647);
+  // Force de modification (img2img) : entre 0.3 (proche de la référence) et 0.95 (presque libre).
+  const denoise = Math.min(0.95, Math.max(0.3, Number(options?.denoise) || 0.6));
+  if (!prompt) throw new Error('Écris un prompt avant de lancer la génération.');
+  if (prompt.length > 2000 || negative.length > 1000) throw new Error('Prompt trop long.');
+
+  clearTimeout(comfyIdleTimer);
+  comfyGenerationInProgress = true;
+  let status;
+  if (!findComfyInstallation()) await installComfyPortable();
+  await startComfyIfAvailable();
+  status = await getImageStatus();
+  if (!status.running) {
+    throw new Error('ComfyUI est installé mais ne démarre pas. Vérifie les pilotes graphiques et le fichier debug.log.');
+  }
+  if (!status.installed) {
+    throw new Error('Checkpoint SDXL absent. Place sd_xl_base_1.0.safetensors dans ComfyUI/models/checkpoints puis actualise ComfyUI.');
+  }
+
+  let referenceName = null;
+  let referenceWidth = width;
+  let referenceHeight = height;
+  const referenceImages = Array.isArray(options?.referenceImages) ? options.referenceImages : [];
+  if (referenceImages.length > 1) {
+    throw new Error('Pour modifier une image correctement, ajoute une seule référence principale à la fois.');
+  }
+  if (referenceImages.length === 1) {
+    const sharp = require('sharp');
+    const match = String(referenceImages[0]).match(/^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$/);
+    if (!match) throw new Error('Une image de référence est invalide.');
+    const referenceBufferInput = Buffer.from(match[2], 'base64');
+    if (referenceBufferInput.length > 8 * 1024 * 1024) throw new Error('Une image de référence dépasse 8 Mo.');
+
+    // Conserver le ratio original. L'ancien redimensionnement forcé en 1024x1024
+    // ajoutait des bandes grises et déformait les références portrait/paysage.
+    const metadata = await sharp(referenceBufferInput).metadata();
+    let sourceWidth = Number(metadata.width) || 1024;
+    let sourceHeight = Number(metadata.height) || 1024;
+    if (metadata.orientation >= 5 && metadata.orientation <= 8) {
+      [sourceWidth, sourceHeight] = [sourceHeight, sourceWidth];
+    }
+    const scale = Math.min(1, 1536 / sourceWidth, 1536 / sourceHeight, Math.sqrt(1500000 / (sourceWidth * sourceHeight)));
+    referenceWidth = Math.max(512, Math.round((sourceWidth * scale) / 8) * 8);
+    referenceHeight = Math.max(512, Math.round((sourceHeight * scale) / 8) * 8);
+    while (referenceWidth * referenceHeight > 1500000) {
+      if (referenceWidth >= referenceHeight) referenceWidth -= 8;
+      else referenceHeight -= 8;
+    }
+
+    const comfy = findComfyInstallation();
+    const inputDirectory = path.join(path.dirname(comfy.main), 'input');
+    fs.mkdirSync(inputDirectory, { recursive: true });
+    referenceName = 'overlayia-reference-' + crypto.randomUUID() + '.png';
+    const preparedReference = await sharp(referenceBufferInput).rotate()
+      .resize(referenceWidth, referenceHeight, { fit: 'fill', kernel: 'lanczos3' })
+      .png().toBuffer();
+    await fs.promises.writeFile(path.join(inputDirectory, referenceName), preparedReference);
+    tempReferencePath = path.join(inputDirectory, referenceName);
+  }
+  // SDXL est un modèle texte-image : il ne suit pas une consigne du type « Edit the image… ».
+  // Cette phrase consommait le budget CLIP (77 tokens) au détriment du prompt utilisateur,
+  // donc on envoie le prompt tel quel ; la fidélité à la référence vient du denoise (img2img).
+  const workflowPrompt = prompt;
+
+  imageReport(referenceName ? 'Modification de l’image de référence…' : 'Envoi du prompt à Stable Diffusion XL…');
+  const submitted = await comfyRequest('/prompt', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      prompt: buildSdxlWorkflow({ prompt: workflowPrompt, negative, width: referenceName ? referenceWidth : width, height: referenceName ? referenceHeight : height, steps: referenceName ? Math.max(30, steps) : steps, referenceName, seed, denoise }),
+      client_id: 'overlayia-' + process.pid,
+    }),
+  });
+  const { prompt_id: promptId, error, node_errors: nodeErrors } = await submitted.json();
+  if (!promptId) {
+    const detail = error?.message || JSON.stringify(nodeErrors || error || 'workflow refusé');
+    throw new Error('ComfyUI a refusé le workflow : ' + detail.slice(0, 500));
+  }
+
+  imageReport('Génération SDXL en cours…');
+  const deadline = Date.now() + 10 * 60 * 1000;
+  let image = null;
+  while (Date.now() < deadline) {
+    await sleep(1200);
+    const historyResponse = await comfyRequest('/history/' + encodeURIComponent(promptId));
+    const history = await historyResponse.json();
+    const outputs = history?.[promptId]?.outputs || {};
+    for (const node of Object.values(outputs)) {
+      if (node.images?.length) { image = node.images[0]; break; }
+    }
+    if (image) break;
+  }
+  if (!image) throw new Error('Délai dépassé : aucune image reçue après 10 minutes.');
+
+  imageReport('Récupération et sauvegarde de l’image…');
+  const query = new URLSearchParams({
+    filename: image.filename,
+    subfolder: image.subfolder || '',
+    type: image.type || 'output',
+  });
+  const imageResponse = await comfyRequest('/view?' + query.toString(), {}, 120000);
+  const buffer = Buffer.from(await imageResponse.arrayBuffer());
+  // Fichier temporaire de session uniquement : rien n'est enregistré dans Images.
+  // La graine utilisée est inscrite dans le nom pour pouvoir relancer la même génération.
+  const usedSeed = seed;
+  const safeName = 'SDXL-' + new Date().toISOString().replace(/[:.]/g, '-') + '-seed' + usedSeed + '.png';
+  const outputPath = path.join(sessionImageDirectory(), safeName);
+  fs.writeFileSync(outputPath, buffer);
+  lastGeneratedImage = outputPath;
+  imageReport('Image générée. Utilise Enregistrer pour la télécharger.');
+  return { ok: true, path: outputPath, seed: usedSeed, dataUrl: 'data:image/png;base64,' + buffer.toString('base64') };
+}
+
+ipcMain.handle('image-status', () => getImageStatus());
+ipcMain.handle('generate-image', async (_e, options) => {
+  try {
+    return await generateLocalImage(options);
+  } finally {
+    comfyGenerationInProgress = false;
+    // La copie de référence envoyée à ComfyUI n'est plus utile une fois la génération finie.
+    if (tempReferencePath) {
+      fs.rm(tempReferencePath, { force: true }, () => {});
+      tempReferencePath = null;
+    }
+    scheduleComfyIdleShutdown();
+  }
+});
+
 async function removeImageBackground(imagePath) {
   const outputDirectory = path.resolve(sessionImageDirectory());
   const resolved = path.resolve(String(imagePath || ''));
