@@ -618,6 +618,139 @@ ipcMain.handle('ollama-status', async () => {
   };
 });
 ipcMain.handle('install-local-ai', () => installLocalAI());
+
+// ---------- Génération d'images locale : ComfyUI + Stable Diffusion XL 1.0 ----------
+const COMFY_URL = 'http://127.0.0.1:8188';
+const SDXL_CHECKPOINT = 'sd_xl_base_1.0.safetensors';
+const imageReport = (message) => {
+  if (win && !win.isDestroyed()) win.webContents.send('image-progress', message);
+};
+
+async function comfyRequest(route, options = {}, timeout = 10000) {
+  const response = await fetch(COMFY_URL + route, {
+    ...options,
+    signal: AbortSignal.timeout(timeout),
+  });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '');
+    throw new Error(\`ComfyUI HTTP \${response.status}\${detail ? ' : ' + detail.slice(0, 400) : ''}\`);
+  }
+  return response;
+}
+
+async function getImageStatus() {
+  try {
+    await comfyRequest('/system_stats');
+    const infoResponse = await comfyRequest('/object_info/CheckpointLoaderSimple');
+    const info = await infoResponse.json();
+    const choices = info?.CheckpointLoaderSimple?.input?.required?.ckpt_name?.[0] || [];
+    const checkpoints = Array.isArray(choices) ? choices : [];
+    return {
+      running: true,
+      installed: checkpoints.includes(SDXL_CHECKPOINT),
+      checkpoint: SDXL_CHECKPOINT,
+      checkpoints,
+      message: checkpoints.includes(SDXL_CHECKPOINT)
+        ? 'ComfyUI prêt · SDXL 1.0 installé'
+        : 'ComfyUI actif · checkpoint SDXL 1.0 manquant',
+    };
+  } catch {
+    return {
+      running: false,
+      installed: false,
+      checkpoint: SDXL_CHECKPOINT,
+      checkpoints: [],
+      message: 'ComfyUI non détecté sur le port 8188',
+    };
+  }
+}
+
+function buildSdxlWorkflow({ prompt, negative, width, height, steps }) {
+  const seed = Math.floor(Math.random() * 2147483647);
+  return {
+    '1': { class_type: 'CheckpointLoaderSimple', inputs: { ckpt_name: SDXL_CHECKPOINT } },
+    '2': { class_type: 'CLIPTextEncode', inputs: { text: prompt, clip: ['1', 1] } },
+    '3': { class_type: 'CLIPTextEncode', inputs: { text: negative, clip: ['1', 1] } },
+    '4': { class_type: 'EmptyLatentImage', inputs: { width, height, batch_size: 1 } },
+    '5': {
+      class_type: 'KSampler',
+      inputs: {
+        seed, steps, cfg: 7, sampler_name: 'euler', scheduler: 'normal',
+        denoise: 1, model: ['1', 0], positive: ['2', 0], negative: ['3', 0], latent_image: ['4', 0],
+      },
+    },
+    '6': { class_type: 'VAEDecode', inputs: { samples: ['5', 0], vae: ['1', 2] } },
+    '7': { class_type: 'SaveImage', inputs: { filename_prefix: 'OverlayIA-SDXL', images: ['6', 0] } },
+  };
+}
+
+async function generateLocalImage(options) {
+  const prompt = String(options?.prompt || '').trim();
+  const negative = String(options?.negative || '').trim();
+  const allowedSizes = [512, 768, 1024];
+  const width = allowedSizes.includes(Number(options?.width)) ? Number(options.width) : 1024;
+  const height = allowedSizes.includes(Number(options?.height)) ? Number(options.height) : 1024;
+  const steps = Math.min(40, Math.max(10, Number(options?.steps) || 25));
+  if (!prompt) throw new Error('Écris un prompt avant de lancer la génération.');
+  if (prompt.length > 2000 || negative.length > 1000) throw new Error('Prompt trop long.');
+
+  const status = await getImageStatus();
+  if (!status.running) {
+    throw new Error('ComfyUI ne répond pas. Installe et démarre ComfyUI, puis relance la vérification.');
+  }
+  if (!status.installed) {
+    throw new Error('Checkpoint SDXL absent. Place sd_xl_base_1.0.safetensors dans ComfyUI/models/checkpoints puis actualise ComfyUI.');
+  }
+
+  imageReport('Envoi du prompt à Stable Diffusion XL…');
+  const submitted = await comfyRequest('/prompt', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      prompt: buildSdxlWorkflow({ prompt, negative, width, height, steps }),
+      client_id: 'overlayia-' + process.pid,
+    }),
+  });
+  const { prompt_id: promptId, error, node_errors: nodeErrors } = await submitted.json();
+  if (!promptId) {
+    const detail = error?.message || JSON.stringify(nodeErrors || error || 'workflow refusé');
+    throw new Error('ComfyUI a refusé le workflow : ' + detail.slice(0, 500));
+  }
+
+  imageReport('Génération SDXL en cours…');
+  const deadline = Date.now() + 10 * 60 * 1000;
+  let image = null;
+  while (Date.now() < deadline) {
+    await sleep(1200);
+    const historyResponse = await comfyRequest('/history/' + encodeURIComponent(promptId));
+    const history = await historyResponse.json();
+    const outputs = history?.[promptId]?.outputs || {};
+    for (const node of Object.values(outputs)) {
+      if (node.images?.length) { image = node.images[0]; break; }
+    }
+    if (image) break;
+  }
+  if (!image) throw new Error('Délai dépassé : aucune image reçue après 10 minutes.');
+
+  imageReport('Récupération et sauvegarde de l’image…');
+  const query = new URLSearchParams({
+    filename: image.filename,
+    subfolder: image.subfolder || '',
+    type: image.type || 'output',
+  });
+  const imageResponse = await comfyRequest('/view?' + query.toString(), {}, 120000);
+  const buffer = Buffer.from(await imageResponse.arrayBuffer());
+  const outputDir = path.join(app.getPath('pictures'), 'OverlayIA');
+  fs.mkdirSync(outputDir, { recursive: true });
+  const safeName = 'SDXL-' + new Date().toISOString().replace(/[:.]/g, '-') + '.png';
+  const outputPath = path.join(outputDir, safeName);
+  fs.writeFileSync(outputPath, buffer);
+  imageReport('Image générée et enregistrée.');
+  return { ok: true, path: outputPath, dataUrl: 'data:image/png;base64,' + buffer.toString('base64') };
+}
+
+ipcMain.handle('image-status', () => getImageStatus());
+ipcMain.handle('generate-image', (_e, options) => generateLocalImage(options));
 ipcMain.handle('check-update', () => checkForUpdates());
 ipcMain.handle('get-version', () => app.getVersion());
 ipcMain.on('install-update', () => autoUpdater.quitAndInstall());
