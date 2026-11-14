@@ -634,7 +634,7 @@ async function comfyRequest(route, options = {}, timeout = 10000) {
   });
   if (!response.ok) {
     const detail = await response.text().catch(() => '');
-    throw new Error(\`ComfyUI HTTP \${response.status}\${detail ? ' : ' + detail.slice(0, 400) : ''}\`);
+    throw new Error(`ComfyUI HTTP ${response.status}${detail ? ' : ' + detail.slice(0, 400) : ''}`);
   }
   return response;
 }
