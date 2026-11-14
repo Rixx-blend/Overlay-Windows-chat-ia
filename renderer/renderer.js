@@ -888,7 +888,7 @@ async function removeBackgroundInChat(imagePath) {
     if (stopLoader) { stopLoader(); stopLoader = null; }
     imageProgressLabel = null;
     const image = document.createElement('img');
-    image.className = 'chat-generated-image';
+    image.className = 'chat-generated-image transparent-preview';
     image.alt = 'Image détourée avec fond transparent';
     image.src = result.dataUrl;
     const caption = document.createElement('div');
