@@ -21,10 +21,12 @@
       "computer-use.js",
       "preload.js",
       "rembg.js",
-      "renderer/**/*"
+      "renderer/**/*",
+      "computer_use/**/*"
     ],
     "asarUnpack": [
-      "**/uiohook-napi/**"
+      "**/uiohook-napi/**",
+      "computer_use/**/*"
     ],
     "npmRebuild": false,
     "publish": {
