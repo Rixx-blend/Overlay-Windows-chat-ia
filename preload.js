@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('api', {
   chat: (messages, model) => ipcRenderer.send('chat', { messages, model }),
   transcribe: (buf) => ipcRenderer.invoke('transcribe', buf),
+  protect: (on) => ipcRenderer.invoke('protect', on),
   mouseIn: () => ipcRenderer.send('mouse-in'),
   mouseOut: () => ipcRenderer.send('mouse-out'),
   hide: () => ipcRenderer.send('hide'),
@@ -14,4 +15,6 @@ contextBridge.exposeInMainWorld('api', {
   onFocus: (cb) => ipcRenderer.on('focus-input', () => cb()),
   onGeometry: (cb) => ipcRenderer.on('geometry', (_e, g) => cb(g)),
   onVisibility: (cb) => ipcRenderer.on('visibility', (_e, v) => cb(v)),
+  onMode: (cb) => ipcRenderer.on('mode', (_e, live) => cb(live)),
+  onSnapshot: (cb) => ipcRenderer.on('snapshot', () => cb()),
 });

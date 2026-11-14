@@ -8,6 +8,7 @@ const WIN_W = 620;
 const WIN_H = 580;
 
 let win = null;
+let liveGlass = false; // false : overlay visible dans les captures (fond figé) ; true : verre live, masqué des captures
 
 function displayOf() {
   return screen.getDisplayMatching(win.getBounds());
@@ -51,13 +52,14 @@ function createWindow() {
 
   win.setAlwaysOnTop(true, 'screen-saver');
   // Exclut la fenêtre de la capture : sinon le verre se capturerait lui-même
-  win.setContentProtection(true);
+  win.setContentProtection(false); // visible dans les captures par défaut
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   win.setIgnoreMouseEvents(true, { forward: true });
 
   win.webContents.once('did-finish-load', () => {
     sendGeometry();
     win.webContents.send('visibility', win.isVisible());
+    win.webContents.send('mode', liveGlass);
   });
   win.on('move', sendGeometry);
   win.on('show', () => {
@@ -161,6 +163,8 @@ app.whenReady().then(() => {
   setupCapture();
   setupPermissions();
   globalShortcut.register('Control+Alt+Space', toggleOverlay);
+  globalShortcut.register('Control+Alt+B', () => win && win.webContents.send('snapshot'));
+  globalShortcut.register('Control+Alt+L', toggleLive);
 });
 
 app.on('window-all-closed', () => app.quit());
@@ -186,4 +190,18 @@ ipcMain.handle('transcribe', async (_e, buf) => {
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return (await res.json()).text || '';
+});
+
+// Bascule entre fond figé (overlay visible dans les captures) et verre live (overlay masqué)
+function toggleLive() {
+  if (!win) return;
+  liveGlass = !liveGlass;
+  win.setContentProtection(liveGlass);
+  win.webContents.send('mode', liveGlass);
+}
+
+// Le renderer masque temporairement l'overlay des captures pour figer un fond propre
+ipcMain.handle('protect', (_e, on) => {
+  if (win && !win.isDestroyed()) win.setContentProtection(!!on);
+  return true;
 });

@@ -1,8 +1,10 @@
-// Verre liquide.
-// Le bureau arrive en continu via un flux vidéo (getDisplayMedia, rendu GPU).
-// Le shader lit directement cette texture, déforme la zone derrière la carte
-// (lentille, dispersion, flou, reflets) et dessine l'ombre.
-// Les images ne sont redessinées que lorsqu'une nouvelle frame ou un changement de carte arrive.
+// Verre liquide : le shader déforme le bureau derrière la carte, avec aberration chromatique sur les bords.
+//
+// Deux modes :
+// - fond figé (défaut) : l'overlay est visible dans les captures et le partage d'écran.
+//   Le fond est une photo du bureau prise sans l'overlay (au démarrage, au retour, ou Ctrl+Alt+B).
+// - verre live (Ctrl+Alt+L) : le fond est en continu (20-30 fps) mais l'overlay est masqué des captures,
+//   sinon le verre se reflèterait lui-même.
 (function () {
   const canvas = document.getElementById('glass');
   const video = document.getElementById('bg');
@@ -20,17 +22,17 @@
 
   const FS = `
     precision highp float;
-    uniform sampler2D u_tex;   // flux de l'écran
+    uniform sampler2D u_tex;   // bureau (flux live ou photo figée)
     uniform vec2 u_res;        // taille du canvas (pixels physiques)
     uniform vec4 u_rect;       // carte : x, y, largeur, hauteur (pixels, origine haut-gauche)
-    uniform float u_radius;    // rayon des coins de la carte
+    uniform float u_radius;    // rayon des coins
     uniform float u_s;         // échelle (dpr)
     uniform vec2 u_uvOff;      // position de la fenêtre dans l'écran (0..1)
     uniform vec2 u_uvScale;    // taille de la fenêtre par rapport à l'écran (0..1)
     uniform vec2 u_blurUV;     // rayon du flou en coordonnées de texture
     uniform float u_refract;   // force de la lentille (pixels)
     uniform float u_edge;      // épaisseur de la zone de réfraction (pixels)
-    uniform float u_chroma;    // dispersion chromatique
+    uniform float u_ca;        // aberration chromatique sur les bords (pixels)
     uniform float u_tint;      // voile clair
 
     float sdRoundBox(vec2 p, vec2 b, float r) {
@@ -38,12 +40,11 @@
       return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
     }
 
-    // pixel de la fenêtre -> coordonnée de texture de l'écran
     vec2 toUV(vec2 pix) {
       return u_uvOff + (pix / u_res) * u_uvScale;
     }
 
-    // Flou 3x3 du flux
+    // Flou 3x3 du bureau
     vec3 backdrop(vec2 pix) {
       vec2 uv = toUV(pix);
       vec3 s = vec3(0.0);
@@ -84,10 +85,11 @@
       float lens = pow(1.0 - depth, 3.0);
       vec2 disp = -n * lens * u_refract;
 
-      // Dispersion chromatique
-      float cr = backdrop(p + disp * (1.0 + u_chroma)).r;
+      // Aberration chromatique : rouge et bleu se décalent de part et d'autre, proportionnellement à la courbure
+      vec2 fr = n * lens * u_ca;
+      float cr = backdrop(p + disp + fr).r;
       vec3 mid = backdrop(p + disp);
-      float cb = backdrop(p + disp * (1.0 - u_chroma)).b;
+      float cb = backdrop(p + disp - fr).b;
       vec3 col = vec3(cr, mid.g, cb);
 
       // Éclaircissement et saturation
@@ -137,42 +139,43 @@
 
   const U = {};
   ['u_tex', 'u_res', 'u_rect', 'u_radius', 'u_s', 'u_uvOff', 'u_uvScale', 'u_blurUV',
-    'u_refract', 'u_edge', 'u_chroma', 'u_tint']
+    'u_refract', 'u_edge', 'u_ca', 'u_tint']
     .forEach((n) => (U[n] = gl.getUniformLocation(prog, n)));
-
-  // Texture alimentée par la vidéo de l'écran
-  const tex = gl.createTexture();
-  gl.activeTexture(gl.TEXTURE0);
-  gl.bindTexture(gl.TEXTURE_2D, tex);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
   gl.uniform1i(U.u_tex, 0);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
 
-  // ---------- Flux de l'écran ----------
-  let stream = null;
-  let starting = false;
+  function makeTex() {
+    const t = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    return t;
+  }
+  const liveTex = makeTex();   // flux continu (mode live)
+  const snapTex = makeTex();   // photo figée du bureau (mode défaut)
+
+  // ---------- État ----------
+  let live = false;
+  let shown = true;
   let geo = null;
+  let stream = null;
   let newFrame = false;
-  let hasFrame = false;
+  let snapping = false;
+  let liveW = 0, liveH = 0, hasLive = false;
+  let snapW = 0, snapH = 0, hasSnap = false, snapVersion = 0;
 
   function onVideoFrame() {
     newFrame = true;
     if (stream) video.requestVideoFrameCallback(onVideoFrame);
   }
 
-  async function startCapture() {
-    if (stream || starting) return;
-    starting = true;
+  async function startStream() {
+    if (stream) return true;
     try {
-      const s = await navigator.mediaDevices.getDisplayMedia({
-        video: { frameRate: 30 },
-        audio: false,
-      });
+      const s = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: false });
       stream = s;
-      // Résolution réduite : le fond est flouté de toute façon, et c'est bien plus léger
       try {
         await s.getVideoTracks()[0].applyConstraints({
           width: { max: 1280 },
@@ -180,35 +183,92 @@
           frameRate: { max: 30 },
         });
       } catch (_) {
-        /* contraintes non acceptées : on garde la résolution native */
+        /* on garde la résolution native */
       }
       video.srcObject = s;
       await video.play();
       video.requestVideoFrameCallback(onVideoFrame);
+      return true;
     } catch (err) {
       console.error('capture écran :', err);
-    } finally {
-      starting = false;
+      stream = null;
+      return false;
     }
   }
 
-  function stopCapture() {
+  function stopStream() {
     if (!stream) return;
     stream.getTracks().forEach((t) => t.stop());
     stream = null;
     video.srcObject = null;
-    hasFrame = false;
+    newFrame = false;
   }
 
-  window.api.onVisibility((v) => (v ? startCapture() : stopCapture()));
+  // Attend quelques images après avoir masqué l'overlay, pour être sûr qu'elles sont propres
+  function waitFrames(n) {
+    return new Promise((resolve) => {
+      let count = 0;
+      const cb = () => {
+        if (++count >= n) resolve();
+        else video.requestVideoFrameCallback(cb);
+      };
+      video.requestVideoFrameCallback(cb);
+      setTimeout(resolve, 2000);
+    });
+  }
+
+  // Photo du bureau sans l'overlay (overlay masqué des captures le temps de la prise)
+  async function takeSnapshot() {
+    if (live || snapping || !shown) return;
+    snapping = true;
+    try {
+      await window.api.protect(true);
+      if (await startStream()) {
+        await waitFrames(8);
+        if (video.videoWidth) {
+          gl.bindTexture(gl.TEXTURE_2D, snapTex);
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
+          snapW = video.videoWidth;
+          snapH = video.videoHeight;
+          hasSnap = true;
+          snapVersion++;
+        }
+        stopStream();
+      }
+    } finally {
+      await window.api.protect(live);
+      snapping = false;
+    }
+  }
+
+  window.api.onMode((isLive) => {
+    live = isLive;
+    if (live) {
+      if (shown) startStream();
+    } else {
+      stopStream();
+      takeSnapshot();
+    }
+  });
+
+  window.api.onVisibility((v) => {
+    shown = v;
+    if (!v) {
+      stopStream();
+    } else if (live) {
+      startStream();
+    } else {
+      takeSnapshot();
+    }
+  });
+
+  window.api.onSnapshot(() => takeSnapshot());
   window.api.onGeometry((g) => (geo = g));
 
   // ---------- Rendu ----------
   let lastKey = '';
   let radius = 0;
   let radiusSrc = '';
-  let vw = 1;
-  let vh = 1;
 
   function frame() {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -220,13 +280,13 @@
     }
 
     let uploaded = false;
-    if (newFrame && video.readyState >= 2 && video.videoWidth) {
+    if (live && newFrame && video.readyState >= 2 && video.videoWidth) {
       newFrame = false;
-      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.bindTexture(gl.TEXTURE_2D, liveTex);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
-      vw = video.videoWidth;
-      vh = video.videoHeight;
-      hasFrame = true;
+      liveW = video.videoWidth;
+      liveH = video.videoHeight;
+      hasLive = true;
       uploaded = true;
     }
 
@@ -237,24 +297,28 @@
       radius = parseFloat(rs) || 0;
     }
 
-    const key = [W, H, r.left, r.top, r.width, r.height, radius,
-      geo ? [geo.x, geo.y, geo.dw, geo.dh].join(',') : ''].join('|');
+    const hasSrc = live ? hasLive : hasSnap;
+    const srcW = live ? liveW : snapW;
+    const srcH = live ? liveH : snapH;
+    const key = [W, H, r.left, r.top, r.width, r.height, radius, live,
+      geo ? [geo.x, geo.y, geo.dw, geo.dh].join(',') : '', snapVersion].join('|');
 
-    if (hasFrame && geo && (uploaded || key !== lastKey)) {
+    if (hasSrc && geo && srcW && (uploaded || key !== lastKey)) {
       lastKey = key;
       gl.viewport(0, 0, W, H);
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.bindTexture(gl.TEXTURE_2D, live ? liveTex : snapTex);
       gl.uniform2f(U.u_res, W, H);
       gl.uniform4f(U.u_rect, r.left * dpr, r.top * dpr, r.width * dpr, r.height * dpr);
       gl.uniform1f(U.u_radius, radius * dpr);
       gl.uniform1f(U.u_s, dpr);
       gl.uniform2f(U.u_uvOff, geo.x / geo.dw, geo.y / geo.dh);
       gl.uniform2f(U.u_uvScale, geo.w / geo.dw, geo.h / geo.dh);
-      gl.uniform2f(U.u_blurUV, 1.5 / vw, 1.5 / vh);
+      gl.uniform2f(U.u_blurUV, 1.5 / srcW, 1.5 / srcH);
       gl.uniform1f(U.u_refract, 16 * dpr);
       gl.uniform1f(U.u_edge, 34 * dpr);
-      gl.uniform1f(U.u_chroma, 0.12);
+      gl.uniform1f(U.u_ca, 6 * dpr);
       gl.uniform1f(U.u_tint, 0.12);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     }
