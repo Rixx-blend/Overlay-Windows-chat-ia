@@ -684,6 +684,10 @@ $('installAI').addEventListener('click', async () => {
   refreshOllama();
 });
 
+bridge.onImageProgress((t) => {
+  if (setupLine) setupLine.textContent = t;
+});
+
 bridge.onOllamaProgress((t) => {
   $('ollamaProg').textContent = t;
   if (setupLine) setupLine.textContent = t;
@@ -695,11 +699,30 @@ bridge.onOllamaProgress((t) => {
 });
 
 // Proposition d'installation dans le chat, affichée tant que le modèle n'est pas prêt
-function showSetupPrompt() {
+
+function showSetupPrompt(status) {
   const box = document.createElement('div');
   box.className = 'action setup';
   const label = document.createElement('div');
-  label.textContent = "L'IA locale (Ollama + qwen2.5vl:3b) n'est pas installée. Voulez-vous l'installer maintenant ?";
+  label.textContent = 'Vérification des modèles locaux';
+  const details = document.createElement('div');
+  details.className = 'prog';
+  const qwenRow = document.createElement('div');
+  qwenRow.className = 'act-row';
+  const qwenLabel = document.createElement('span');
+  const qwenButton = document.createElement('button');
+  qwenButton.className = 'btn dark';
+  qwenButton.textContent = 'Télécharger Qwen';
+  qwenRow.append(qwenLabel, qwenButton);
+
+  const sdxlRow = document.createElement('div');
+  sdxlRow.className = 'act-row';
+  const sdxlLabel = document.createElement('span');
+  const sdxlButton = document.createElement('button');
+  sdxlButton.className = 'btn dark';
+  sdxlButton.textContent = 'Télécharger SDXL · 6,94 Go';
+  sdxlRow.append(sdxlLabel, sdxlButton);
+
   const prog = document.createElement('div');
   prog.className = 'prog';
   const row = document.createElement('div');
@@ -707,31 +730,77 @@ function showSetupPrompt() {
   const later = document.createElement('button');
   later.className = 'btn';
   later.textContent = 'Plus tard';
-  const go = document.createElement('button');
-  go.className = 'btn dark';
-  go.textContent = 'Installer';
-  row.append(later, go);
-  box.append(label, prog, row);
+  row.append(later);
+  box.append(label, details, qwenRow, sdxlRow, prog, row);
   chat.appendChild(box);
   chat.classList.add('has');
   setupLine = prog;
   keepOpen();
+
+  const update = (s) => {
+    qwenLabel.textContent = s.qwenInstalled ? 'Qwen 2.5 VL 3B · installé' : 'Qwen 2.5 VL 3B · manquant';
+    qwenButton.disabled = !!s.qwenInstalled;
+    qwenButton.textContent = s.qwenInstalled ? 'Installé' : 'Télécharger';
+    sdxlLabel.textContent = s.sdxlInstalled
+      ? 'Stable Diffusion XL 1.0 · installé'
+      : 'Stable Diffusion XL 1.0 · manquant';
+    sdxlButton.disabled = !!s.sdxlInstalled;
+    sdxlButton.textContent = s.sdxlInstalled ? 'Installé' : 'Télécharger · 6,94 Go';
+    details.textContent = !s.comfyRunning
+      ? (s.sdxlInstalled
+        ? 'Les fichiers SDXL sont présents, mais ComfyUI ne répond pas sur le port 8188. Démarre ComfyUI pour générer des images.'
+        : 'ComfyUI ne répond pas sur le port 8188. S’il est déjà installé, démarre-le après le téléchargement du checkpoint.')
+      : 'ComfyUI détecté.';
+    if (!s.needsSetup && s.comfyRunning) {
+      label.textContent = 'Les deux modèles sont installés.';
+      prog.textContent = 'Configuration locale prête.';
+      setTimeout(() => {
+        box.remove();
+        setupLine = null;
+      }, 1200);
+    } else if (!s.needsSetup) {
+      label.textContent = 'Les deux modèles sont présents.';
+    }
+  };
+  update(status);
 
   later.onclick = () => {
     box.remove();
     setupLine = null;
     scheduleClose();
   };
-  go.onclick = async () => {
-    go.disabled = later.disabled = true;
-    prog.textContent = 'Démarrage…';
+  qwenButton.onclick = async () => {
+    qwenButton.disabled = later.disabled = sdxlButton.disabled = true;
+    prog.textContent = 'Préparation d’Ollama et téléchargement de Qwen…';
     try {
-      prog.textContent = await bridge.installLocalAI();
+      await bridge.installLocalAI();
     } catch (err) {
-      prog.textContent = 'Erreur : ' + err.message;
-      go.disabled = later.disabled = false;
+      prog.textContent = 'Erreur Qwen : ' + err.message;
+    } finally {
+      later.disabled = false;
+      update(await bridge.startupModelsStatus());
     }
-    refreshOllama();
+  };
+  sdxlButton.onclick = async () => {
+    qwenButton.disabled = later.disabled = sdxlButton.disabled = true;
+    prog.textContent = 'Choisis ComfyUI/models/checkpoints. Le téléchargement fait environ 6,94 Go.';
+    try {
+      const result = await bridge.downloadSdxlModel();
+      if (result.cancelled) {
+        prog.textContent = 'Téléchargement annulé.';
+      } else {
+        const next = await bridge.startupModelsStatus();
+        update(next);
+        if (!next.comfyRunning) {
+          prog.textContent = 'Checkpoint téléchargé. Démarre ComfyUI, puis actualise le statut dans l’onglet Images.';
+        }
+      }
+    } catch (err) {
+      prog.textContent = 'Erreur SDXL : ' + err.message;
+    } finally {
+      later.disabled = false;
+      update(await bridge.startupModelsStatus());
+    }
   };
 }
 
@@ -789,9 +858,9 @@ bridge.onFocus(() => {
 
   // IA locale déjà installée : rien à faire. Sinon, on propose l'installation.
   try {
-    const s = await bridge.ollamaStatus();
-    if (!s.hasModel) showSetupPrompt();
+    const s = await bridge.startupModelsStatus();
+    if (s.needsSetup || !s.comfyRunning) showSetupPrompt(s);
   } catch {
-    showSetupPrompt();
+    showSetupPrompt({ qwenInstalled: false, sdxlInstalled: false, comfyRunning: false, needsSetup: true });
   }
 })();

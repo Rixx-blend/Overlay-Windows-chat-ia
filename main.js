@@ -1,5 +1,6 @@
-const { app, BrowserWindow, globalShortcut, ipcMain, screen, desktopCapturer, session, shell } = require('electron');
+const { app, BrowserWindow, globalShortcut, ipcMain, screen, desktopCapturer, session, shell, dialog } = require('electron');
 const fs = require('fs');
+const crypto = require('crypto');
 const os = require('os');
 const path = require('path');
 const { execFile, spawn, spawnSync } = require('child_process');
@@ -662,6 +663,8 @@ ipcMain.handle('set-settings', (_e, patch) => {
   saveSettings();
   return settings;
 });
+ipcMain.handle('startup-models-status', () => getStartupModelsStatus());
+ipcMain.handle('download-sdxl-model', () => downloadSdxlModel());
 ipcMain.handle('ollama-status', async () => {
   const tags = await ollamaTags();
   const models = tags ? (tags.models || []).map((m) => m.name) : [];
@@ -676,6 +679,8 @@ ipcMain.handle('install-local-ai', () => installLocalAI());
 // ---------- Génération d'images locale : ComfyUI + Stable Diffusion XL 1.0 ----------
 const COMFY_URL = 'http://127.0.0.1:8188';
 const SDXL_CHECKPOINT = 'sd_xl_base_1.0.safetensors';
+const SDXL_DOWNLOAD_URL = 'https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_base_1.0.safetensors';
+const SDXL_SHA256 = '31e35c80fc4829d14f90153f4c74cd59c90b779f6afe05a74cd6120b893f7e5b';
 const imageReport = (message) => {
   if (win && !win.isDestroyed()) win.webContents.send('image-progress', message);
 };
@@ -716,6 +721,88 @@ async function getImageStatus() {
       checkpoints: [],
       message: 'ComfyUI non détecté sur le port 8188',
     };
+  }
+}
+
+async function getStartupModelsStatus() {
+  let tags = await ollamaTags();
+  if (!tags && findOllama()) {
+    startOllamaServer();
+    await attendreServeur(15000);
+    tags = await ollamaTags();
+  }
+  const installedNames = (tags?.models || []).map((model) => model.name);
+  const qwenInstalled = installedNames.includes(OLLAMA_MODEL) || installedNames.includes(OLLAMA_MODEL + ':latest');
+  const imageStatus = await getImageStatus();
+  const savedCheckpoint = settings.sdxlCheckpointDir
+    ? path.join(settings.sdxlCheckpointDir, SDXL_CHECKPOINT)
+    : null;
+  const sdxlInstalled = imageStatus.running
+    ? imageStatus.installed
+    : !!(savedCheckpoint && fs.existsSync(savedCheckpoint) && fs.statSync(savedCheckpoint).size > 6_000_000_000);
+
+  return {
+    qwenInstalled,
+    ollamaInstalled: !!findOllama(),
+    ollamaRunning: !!tags,
+    sdxlInstalled,
+    comfyRunning: imageStatus.running,
+    comfyMessage: imageStatus.message,
+    needsSetup: !qwenInstalled || !sdxlInstalled,
+  };
+}
+
+async function downloadSdxlModel() {
+  const choice = await dialog.showOpenDialog(win, {
+    title: 'Choisir le dossier ComfyUI\\models\\checkpoints',
+    message: 'Sélectionne le dossier checkpoints de ComfyUI. Le modèle SDXL pèse environ 6,94 Go.',
+    properties: ['openDirectory', 'createDirectory'],
+  });
+  if (choice.canceled || !choice.filePaths?.[0]) return { cancelled: true };
+
+  const directory = choice.filePaths[0];
+  const normalizedDirectory = path.resolve(directory).split(path.sep).join('/').toLowerCase();
+  if (!normalizedDirectory.endsWith('/models/checkpoints')) {
+    throw new Error('Sélection incorrecte. Choisis exactement le dossier ComfyUI/models/checkpoints.');
+  }
+  fs.mkdirSync(directory, { recursive: true });
+  const destination = path.join(directory, SDXL_CHECKPOINT);
+  if (fs.existsSync(destination) && fs.statSync(destination).size > 6_000_000_000) {
+    settings.sdxlCheckpointDir = directory;
+    saveSettings();
+    imageReport('Checkpoint SDXL déjà présent dans le dossier sélectionné.');
+    return { ok: true, alreadyExists: true };
+  }
+
+  const temporary = destination + '.download';
+  try {
+    if (fs.existsSync(temporary)) fs.unlinkSync(temporary);
+    imageReport('Connexion à Hugging Face pour télécharger SDXL (6,94 Go)…');
+    await downloadTo(SDXL_DOWNLOAD_URL, temporary, (percent) => {
+      imageReport('Téléchargement SDXL : ' + percent + ' %');
+    });
+    const size = fs.statSync(temporary).size;
+    if (size < 6_000_000_000) throw new Error('Le fichier reçu est incomplet (' + Math.round(size / 1_000_000) + ' Mo).');
+
+    imageReport('Vérification de l’intégrité du fichier SDXL…');
+    const hash = crypto.createHash('sha256');
+    await new Promise((resolve, reject) => {
+      const stream = fs.createReadStream(temporary);
+      stream.on('data', (chunk) => hash.update(chunk));
+      stream.on('error', reject);
+      stream.on('end', resolve);
+    });
+    if (hash.digest('hex') !== SDXL_SHA256) throw new Error('La vérification SHA-256 a échoué. Le fichier téléchargé est invalide.');
+
+    fs.renameSync(temporary, destination);
+    settings.sdxlCheckpointDir = directory;
+    saveSettings();
+    imageReport('SDXL téléchargé et vérifié. Démarre ou actualise ComfyUI pour le charger.');
+    return { ok: true, path: destination };
+  } catch (err) {
+    try { if (fs.existsSync(temporary)) fs.unlinkSync(temporary); } catch {}
+    imageReport('Échec du téléchargement SDXL : ' + err.message);
+    throw err;
   }
 }
 

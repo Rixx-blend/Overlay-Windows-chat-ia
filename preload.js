@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld('api', {
   getSettings: () => ipcRenderer.invoke('get-settings'),
   setSettings: (patch) => ipcRenderer.invoke('set-settings', patch),
   ollamaStatus: () => ipcRenderer.invoke('ollama-status'),
+  startupModelsStatus: () => ipcRenderer.invoke('startup-models-status'),
+  downloadSdxlModel: () => ipcRenderer.invoke('download-sdxl-model'),
   installLocalAI: () => ipcRenderer.invoke('install-local-ai'),
   imageStatus: () => ipcRenderer.invoke('image-status'),
   generateImage: (options) => ipcRenderer.invoke('generate-image', options),

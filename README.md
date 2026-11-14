@@ -7,7 +7,7 @@ Overlay de chat IA en verre liquide pour Windows. Sans cadre, toujours au premie
 Téléchargez `OverlayIA-Setup-<version>.exe` dans la page **Releases** du dépôt et lancez-le.
 L'installateur n'est pas signé : Windows SmartScreen affichera un avertissement (« Informations complémentaires » puis « Exécuter quand même »).
 
-À la première ouverture, l'application installe automatiquement **Ollama** et le modèle **qwen2.5vl:3b** (IA locale, avec analyse d'images). Vous pouvez relancer cette installation depuis les paramètres.
+À chaque démarrage, l'application vérifie les deux modèles locaux : **qwen2.5vl:3b** (Ollama, chat et analyse d'images) et **SDXL 1.0** (ComfyUI, génération d'images). Si l'un manque, une fenêtre de préparation propose son téléchargement avec une progression. Le checkpoint SDXL pèse environ **6,94 Go** et doit être enregistré dans `ComfyUI/models/checkpoints`. ComfyUI reste un moteur séparé qui doit être installé et démarré pour générer des images.
 
 ## Mises à jour automatiques
 
