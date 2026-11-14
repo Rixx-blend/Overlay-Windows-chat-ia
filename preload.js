@@ -20,7 +20,6 @@ contextBridge.exposeInMainWorld('api', {
   imageStatus: () => ipcRenderer.invoke('image-status'),
   generateImage: (options) => ipcRenderer.invoke('generate-image', options),
   removeBackground: (imagePath) => ipcRenderer.invoke('remove-background', imagePath),
-  saveCutout: (payload) => ipcRenderer.invoke('save-cutout', payload),
   saveGeneratedImage: (imagePath) => ipcRenderer.invoke('save-generated-image', imagePath),
   copyGeneratedImage: (imagePath) => ipcRenderer.invoke('copy-generated-image', imagePath),
   openGeneratedImage: () => ipcRenderer.invoke('open-generated-image'),

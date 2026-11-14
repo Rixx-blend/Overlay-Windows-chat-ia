@@ -19,9 +19,11 @@ const API_URL = 'https://api.openai.com/v1/chat/completions';
 const OLLAMA = 'http://127.0.0.1:11434';
 const OLLAMA_MODEL = 'qwen2.5vl:3b';
 const OLLAMA_INSTALLER_URL = 'https://ollama.com/download/OllamaSetup.exe';
-const RMBG_MODEL_URL = 'https://huggingface.co/jmbell88/birefnet-onnx/resolve/main/birefnet.onnx';
-const RMBG_MODEL_NAME = 'birefnet.onnx';
-const RMBG_INPUT_SIZE = 1024;
+// Détourage : port du pipeline de rembg (github.com/danielgatis/rembg), modèle isnet-general-use.
+const RMBG_MODEL_URL = 'https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-general-use.onnx';
+const RMBG_MODEL_NAME = 'isnet-general-use.onnx';
+const RMBG_MODEL_MD5 = 'fc16ebd8b0c10d971d3513d564d01e29';
+const { predictIsnetMask } = require('./rembg');
 let rmbgSessionPromise = null;
 
 // Fenêtre de taille fixe (assez grande pour la carte ouverte et les paramètres)
@@ -1183,17 +1185,21 @@ async function downloadSdxlModel() {
   }
 }
 
+function fileMd5(file) {
+  return crypto.createHash('md5').update(fs.readFileSync(file)).digest('hex');
+}
+
 async function getRmbgModelPath() {
-  const directory = path.join(app.getPath('userData'), 'models', 'rmbg');
+  const directory = path.join(app.getPath('userData'), 'models', 'rembg');
   const modelPath = path.join(directory, RMBG_MODEL_NAME);
-  if (fs.existsSync(modelPath) && fs.statSync(modelPath).size > 850 * 1024 * 1024) return modelPath;
+  if (fs.existsSync(modelPath) && fileMd5(modelPath) === RMBG_MODEL_MD5) return modelPath;
   fs.mkdirSync(directory, { recursive: true });
   const temporary = modelPath + '.download';
-  imageReport('Téléchargement de BiRefNet ONNX (environ 932 Mo, uniquement la première fois)…');
+  imageReport('Téléchargement de rembg (ISNet, environ 170 Mo, uniquement la première fois)…');
   try {
     if (fs.existsSync(temporary)) fs.unlinkSync(temporary);
-    await downloadTo(RMBG_MODEL_URL, temporary, (percent) => imageReport('Téléchargement BiRefNet : ' + percent + ' %'));
-    if (fs.statSync(temporary).size < 850 * 1024 * 1024) throw new Error('Le modèle BiRefNet téléchargé semble incomplet (fichier attendu : environ 932 Mo).');
+    await downloadTo(RMBG_MODEL_URL, temporary, (percent) => imageReport('Téléchargement rembg : ' + percent + ' %'));
+    if (fileMd5(temporary) !== RMBG_MODEL_MD5) throw new Error('Le modèle rembg téléchargé ne correspond pas à la somme de contrôle attendue.');
     fs.renameSync(temporary, modelPath);
     return modelPath;
   } catch (error) {
@@ -1207,7 +1213,7 @@ async function getRmbgSession() {
     rmbgSessionPromise = (async () => {
       const ort = require('onnxruntime-node');
       const modelPath = await getRmbgModelPath();
-      imageReport('Chargement de BiRefNet (premier chargement potentiellement long)…');
+      imageReport('Chargement de rembg (ISNet, premier chargement potentiellement long)…');
       let session;
       if (process.platform === 'win32') {
         try {
@@ -1240,58 +1246,6 @@ async function getRmbgSession() {
   return rmbgSessionPromise;
 }
 
-// Retire la zone de couleur de fond homogène reliée aux bords de l'image.
-// Ne fait rien si les bords ne sont pas assez uniformes (pas de fond plat détectable).
-function removeFlatBackground(rgb, alpha, width, height) {
-  const out = Buffer.from(alpha);
-  const pixelAt = (p) => [rgb[p * 3], rgb[p * 3 + 1], rgb[p * 3 + 2]];
-  const borderPixels = [];
-  for (let x = 0; x < width; x++) {
-    borderPixels.push(x, (height - 1) * width + x);
-  }
-  for (let y = 1; y < height - 1; y++) {
-    borderPixels.push(y * width, y * width + width - 1);
-  }
-  const channels = [0, 1, 2].map((c) => {
-    const values = borderPixels.map((p) => rgb[p * 3 + c]).sort((a, b) => a - b);
-    return values[Math.floor(values.length / 2)];
-  });
-  const distanceToBackground = (p) => {
-    const [r, g, b] = pixelAt(p);
-    return Math.hypot(r - channels[0], g - channels[1], b - channels[2]);
-  };
-  const TOLERANCE = 48;
-  const uniform = borderPixels.filter((p) => distanceToBackground(p) < TOLERANCE).length / borderPixels.length;
-  if (uniform < 0.85) return out;
-
-  const visited = new Uint8Array(width * height);
-  const queue = [];
-  for (const p of borderPixels) {
-    if (!visited[p] && distanceToBackground(p) < TOLERANCE) {
-      visited[p] = 1;
-      queue.push(p);
-    }
-  }
-  for (let head = 0; head < queue.length; head++) {
-    const p = queue[head];
-    out[p] = 0;
-    const x = p % width;
-    const y = (p - x) / width;
-    const neighbours = [];
-    if (x > 0) neighbours.push(p - 1);
-    if (x < width - 1) neighbours.push(p + 1);
-    if (y > 0) neighbours.push(p - width);
-    if (y < height - 1) neighbours.push(p + width);
-    for (const q of neighbours) {
-      if (!visited[q] && distanceToBackground(q) < TOLERANCE) {
-        visited[q] = 1;
-        queue.push(q);
-      }
-    }
-  }
-  return out;
-}
-
 async function removeImageBackground(imagePath) {
   const outputDirectory = path.resolve(sessionImageDirectory());
   const resolved = path.resolve(String(imagePath || ''));
@@ -1303,166 +1257,12 @@ async function removeImageBackground(imagePath) {
   const { ort, session } = await getRmbgSession();
   imageReport('Préparation de l’image pour le détourage…');
   const original = await sharp(resolved).rotate().png().toBuffer();
-  const metadata = await sharp(original).metadata();
-  if (!metadata.width || !metadata.height) throw new Error('Dimensions de l’image illisibles.');
 
-  // Redimensionnement en gardant les proportions (letterbox sur fond gris neutre).
-  // L'ancien étirement forcé déformait la silhouette et décalait le masque
-  // sur les images non carrées (portrait, bannière).
-  const scale = RMBG_INPUT_SIZE / Math.max(metadata.width, metadata.height);
-  const contentWidth = Math.max(1, Math.round(metadata.width * scale));
-  const contentHeight = Math.max(1, Math.round(metadata.height * scale));
-  const offsetX = Math.floor((RMBG_INPUT_SIZE - contentWidth) / 2);
-  const offsetY = Math.floor((RMBG_INPUT_SIZE - contentHeight) / 2);
-  const prepared = await sharp(original)
-    .flatten({ background: '#808080' })
-    .resize(contentWidth, contentHeight, { fit: 'fill', kernel: 'lanczos3' })
-    .extend({
-      top: offsetY,
-      bottom: RMBG_INPUT_SIZE - contentHeight - offsetY,
-      left: offsetX,
-      right: RMBG_INPUT_SIZE - contentWidth - offsetX,
-      background: '#808080',
-    })
-    .removeAlpha()
-    .raw()
-    .toBuffer();
-  const planeSize = RMBG_INPUT_SIZE * RMBG_INPUT_SIZE;
-  const nchw = new Float32Array(3 * planeSize);
-  for (let i = 0; i < planeSize; i++) {
-    nchw[i] = ((prepared[i * 3] / 255) - 0.485) / 0.229;
-    nchw[planeSize + i] = ((prepared[i * 3 + 1] / 255) - 0.456) / 0.224;
-    nchw[planeSize * 2 + i] = ((prepared[i * 3 + 2] / 255) - 0.406) / 0.225;
-  }
+  imageReport('Calcul du masque du sujet avec rembg (ISNet)…');
+  const { mask, width, height } = await predictIsnetMask(sharp, ort, session, original);
 
-  imageReport('Analyse du sujet et des contours avec BiRefNet…');
-  const inputName = session.inputNames[0];
-  const inputTensor = new ort.Tensor('float32', nchw, [1, 3, RMBG_INPUT_SIZE, RMBG_INPUT_SIZE]);
-  const outputMap = await session.run({ [inputName]: inputTensor });
-  // Le modèle jmbell88/BiRefNet-ONNX renvoie des logits [1,1,1024,1024].
-  // Prendre la sortie nommée "logits" (ou la dernière sortie annoncée) évite
-  // de traiter par erreur un tenseur intermédiaire comme masque final.
-  const outputName = session.outputNames.includes('logits')
-    ? 'logits'
-    : session.outputNames[session.outputNames.length - 1];
-  const output = outputMap[outputName];
-  if (!output?.data?.length) throw new Error('Le modèle RMBG n’a renvoyé aucun masque.');
-
-  if (output.data.length !== planeSize) {
-    throw new Error(`Masque BiRefNet invalide : ${output.data.length} valeurs au lieu de ${planeSize}.`);
-  }
-
-  const source = output.data;
-  let minLogit = Infinity;
-  let maxLogit = -Infinity;
-  const probabilities = new Float32Array(planeSize);
-  for (let i = 0; i < planeSize; i++) {
-    const logit = Number(source[i]);
-    if (!Number.isFinite(logit)) throw new Error('Le modèle BiRefNet a produit un masque invalide.');
-    if (logit < minLogit) minLogit = logit;
-    if (logit > maxLogit) maxLogit = logit;
-    probabilities[i] = 1 / (1 + Math.exp(-Math.max(-30, Math.min(30, logit))));
-  }
-  if (maxLogit - minLogit < 0.05) {
-    throw new Error('Le masque BiRefNet est presque uniforme. Le détourage a été interrompu pour éviter un PNG avec fond opaque.');
-  }
-
-  // Transition douce autour d'un seuil : le bord reste légèrement adouci.
-  const buildMask = (center) => {
-    const built = Buffer.alloc(planeSize);
-    for (let i = 0; i < planeSize; i++) {
-      const t = Math.max(0, Math.min(1, (probabilities[i] - center) / 0.10));
-      built[i] = Math.round(t * t * (3 - 2 * t) * 255);
-    }
-    return built;
-  };
-  const foregroundShare = (built) => {
-    let count = 0;
-    for (let i = 0; i < built.length; i++) if (built[i] >= 128) count++;
-    return count / built.length;
-  };
-
-  // Sur une scène sans détourage net (ciel, décor continu), le modèle marque tout
-  // comme premier plan : le fond reste alors opaque. Dans ce cas on resserre le seuil
-  // pour ne garder que les zones les plus certaines comme sujet.
-  // Seuil plus strict : sur un décor flou ou très détaillé, le modèle hésite sur les
-  // zones proches du sujet. Un seuil plus haut évite de garder le fond autour.
-  let mask = buildMask(0.6);
-  let foregroundPercent = foregroundShare(mask) * 100;
-  if (foregroundPercent > 90) {
-    imageReport('Masque trop large (décor continu détecté). Resserrement du seuil…');
-    mask = buildMask(0.85);
-    foregroundPercent = foregroundShare(mask) * 100;
-    if (foregroundPercent > 90) {
-      throw new Error('Le sujet ne se détache pas du décor (plus de 90 % de l’image détectée comme sujet). Essaie une image avec un sujet plus contrasté ou un fond uni.');
-    }
-  }
-  // Ne garder que les zones de premier plan connexes au sujet principal :
-  // supprime les petits morceaux de décor que le modèle a pu garder.
-  const keepLargeComponents = (built) => {
-    const size = RMBG_INPUT_SIZE;
-    const visited = new Uint8Array(built.length);
-    const queue = new Int32Array(built.length);
-    const components = [];
-    for (let start = 0; start < built.length; start++) {
-      if (visited[start] || built[start] < 128) continue;
-      let head = 0;
-      let tail = 0;
-      queue[tail++] = start;
-      visited[start] = 1;
-      while (head < tail) {
-        const p = queue[head++];
-        const x = p % size;
-        const y = (p - x) / size;
-        const neighbours = [];
-        if (x > 0) neighbours.push(p - 1);
-        if (x < size - 1) neighbours.push(p + 1);
-        if (y > 0) neighbours.push(p - size);
-        if (y < size - 1) neighbours.push(p + size);
-        for (const q of neighbours) {
-          if (!visited[q] && built[q] >= 128) {
-            visited[q] = 1;
-            queue[tail++] = q;
-          }
-        }
-      }
-      components.push(queue.slice(0, tail));
-    }
-    if (!components.length) return built;
-    components.sort((a, b) => b.length - a.length);
-    const largest = components[0].length;
-    const kept = Buffer.alloc(built.length);
-    for (const component of components) {
-      if (component.length < largest * 0.05) break;
-      for (const p of component) kept[p] = built[p];
-    }
-    return kept;
-  };
-  mask = keepLargeComponents(mask);
-  foregroundPercent = foregroundShare(mask) * 100;
-  log(`BiRefNet : premier plan estimé à ${foregroundPercent.toFixed(1)} % de l’image (logits ${minLogit.toFixed(2)} à ${maxLogit.toFixed(2)}).`);
-
-  imageReport('Application du masque de premier plan et création du PNG transparent…');
-  // On découpe la zone utile (sans les bandes de remplissage) avant de revenir à la taille d'origine.
-  const resizedMask = await sharp(mask, {
-    raw: { width: RMBG_INPUT_SIZE, height: RMBG_INPUT_SIZE, channels: 1 },
-  })
-    .extract({ left: offsetX, top: offsetY, width: contentWidth, height: contentHeight })
-    .resize(metadata.width, metadata.height, { fit: 'fill', kernel: 'lanczos3' })
-    .blur(0.6)
-    .png()
-    .toBuffer();
-
-  // Second passage sur les pixels finaux : si le fond est uni (couleur de bord homogène),
-  // on retire la zone de cette couleur reliée aux bords. BiRefNet garde parfois un
-  // fond plat comme premier plan ; ce passage corrige ce cas sans toucher au sujet.
-  const { data: rgb, info: rgbInfo } = await sharp(original).removeAlpha().raw().toBuffer({ resolveWithObject: true });
-  const { data: alphaRaw } = await sharp(resizedMask).greyscale().raw().toBuffer({ resolveWithObject: true });
-  const cleanedAlpha = removeFlatBackground(rgb, alphaRaw, rgbInfo.width, rgbInfo.height);
-  const alphaPng = await sharp(cleanedAlpha, {
-    raw: { width: rgbInfo.width, height: rgbInfo.height, channels: 1 },
-  }).png().toBuffer();
-
+  imageReport('Création du PNG transparent…');
+  const alphaPng = await sharp(mask, { raw: { width, height, channels: 1 } }).png().toBuffer();
   const transparentPng = await sharp(original)
     .removeAlpha()
     .joinChannel(alphaPng)
@@ -1473,211 +1273,14 @@ async function removeImageBackground(imagePath) {
   const destination = path.join(parsed.dir, parsed.name + '-sans-fond.png');
   fs.writeFileSync(destination, transparentPng);
   lastGeneratedImage = destination;
-  imageReport('Détourage BiRefNet terminé. PNG transparent enregistré.');
+  imageReport('Détourage terminé. PNG transparent enregistré.');
   return {
     ok: true,
     path: destination,
-    sourcePath: resolved,
     dataUrl: 'data:image/png;base64,' + transparentPng.toString('base64'),
-    originalDataUrl: 'data:image/png;base64,' + original.toString('base64'),
   };
 }
 
-function buildSdxlWorkflow({ prompt, negative, width, height, steps, referenceName, seed: requestedSeed, denoise }) {
-  const seed = Number.isInteger(requestedSeed) ? requestedSeed : Math.floor(Math.random() * 2147483647);
-  const latentNode = referenceName
-    ? { class_type: 'VAEEncode', inputs: { pixels: ['8', 0], vae: ['1', 2] } }
-    : { class_type: 'EmptyLatentImage', inputs: { width, height, batch_size: 1 } };
-  const workflow = {
-    '1': { class_type: 'CheckpointLoaderSimple', inputs: { ckpt_name: SDXL_CHECKPOINT } },
-    '2': { class_type: 'CLIPTextEncode', inputs: { text: prompt, clip: ['1', 1] } },
-    '3': { class_type: 'CLIPTextEncode', inputs: { text: negative, clip: ['1', 1] } },
-    '5': {
-      class_type: 'KSampler',
-      inputs: {
-        seed, steps, cfg: referenceName ? 7.5 : 7,
-        sampler_name: 'dpmpp_2m', scheduler: 'karras',
-        // Denoise img2img réglé par l'utilisateur (défaut 0.6 côté interface).
-        denoise: referenceName ? denoise : 1,
-        model: ['1', 0], positive: ['2', 0], negative: ['3', 0],
-        latent_image: referenceName ? ['9', 0] : ['4', 0],
-      },
-    },
-    '6': { class_type: 'VAEDecode', inputs: { samples: ['5', 0], vae: ['1', 2] } },
-    // PreviewImage : ComfyUI n'écrit pas le résultat dans son dossier de sortie.
-    '7': { class_type: 'PreviewImage', inputs: { images: ['6', 0] } },
-  };
-  if (referenceName) {
-    workflow['8'] = { class_type: 'LoadImage', inputs: { image: referenceName } };
-    workflow['9'] = latentNode;
-  } else {
-    workflow['4'] = latentNode;
-  }
-  return workflow;
-}
-
-async function generateLocalImage(options) {
-  const prompt = String(options?.prompt || '').trim();
-  const referenceDataUrl = Array.isArray(options?.referenceImages) ? options.referenceImages[0] : null;
-  const negative = String(options?.negative || '').trim();
-  const requestedWidth = Number(options?.width);
-  const requestedHeight = Number(options?.height);
-  const validDimensions = (value) => Number.isInteger(value) && value >= 512 && value <= 1536 && value % 8 === 0;
-  const width = validDimensions(requestedWidth) ? requestedWidth : 1024;
-  const height = validDimensions(requestedHeight) ? requestedHeight : 1024;
-  if (width * height > 1500000) throw new Error('Résolution trop élevée : limite de 1,5 mégapixel pour éviter un manque de mémoire.');
-  const steps = Math.min(40, Math.max(10, Number(options?.steps) || 25));
-  // Graine fixée par l'utilisateur pour comparer deux prompts sur la même base ; sinon aléatoire.
-  const requestedSeed = Number(options?.seed);
-  const seed = Number.isInteger(requestedSeed) && requestedSeed >= 0 && requestedSeed <= 2147483647
-    ? requestedSeed
-    : Math.floor(Math.random() * 2147483647);
-  // Force de modification (img2img) : entre 0.3 (proche de la référence) et 0.95 (presque libre).
-  const denoise = Math.min(0.95, Math.max(0.3, Number(options?.denoise) || 0.6));
-  if (!prompt) throw new Error('Écris un prompt avant de lancer la génération.');
-  if (prompt.length > 2000 || negative.length > 1000) throw new Error('Prompt trop long.');
-
-  clearTimeout(comfyIdleTimer);
-  comfyGenerationInProgress = true;
-  let status;
-  if (!findComfyInstallation()) await installComfyPortable();
-  await startComfyIfAvailable();
-  status = await getImageStatus();
-  if (!status.running) {
-    throw new Error('ComfyUI est installé mais ne démarre pas. Vérifie les pilotes graphiques et le fichier debug.log.');
-  }
-  if (!status.installed) {
-    throw new Error('Checkpoint SDXL absent. Place sd_xl_base_1.0.safetensors dans ComfyUI/models/checkpoints puis actualise ComfyUI.');
-  }
-
-  let referenceName = null;
-  let referenceWidth = width;
-  let referenceHeight = height;
-  const referenceImages = Array.isArray(options?.referenceImages) ? options.referenceImages : [];
-  if (referenceImages.length > 1) {
-    throw new Error('Pour modifier une image correctement, ajoute une seule référence principale à la fois.');
-  }
-  if (referenceImages.length === 1) {
-    const sharp = require('sharp');
-    const match = String(referenceImages[0]).match(/^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$/);
-    if (!match) throw new Error('Une image de référence est invalide.');
-    const referenceBufferInput = Buffer.from(match[2], 'base64');
-    if (referenceBufferInput.length > 8 * 1024 * 1024) throw new Error('Une image de référence dépasse 8 Mo.');
-
-    // Conserver le ratio original. L'ancien redimensionnement forcé en 1024x1024
-    // ajoutait des bandes grises et déformait les références portrait/paysage.
-    const metadata = await sharp(referenceBufferInput).metadata();
-    let sourceWidth = Number(metadata.width) || 1024;
-    let sourceHeight = Number(metadata.height) || 1024;
-    if (metadata.orientation >= 5 && metadata.orientation <= 8) {
-      [sourceWidth, sourceHeight] = [sourceHeight, sourceWidth];
-    }
-    const scale = Math.min(1, 1536 / sourceWidth, 1536 / sourceHeight, Math.sqrt(1500000 / (sourceWidth * sourceHeight)));
-    referenceWidth = Math.max(512, Math.round((sourceWidth * scale) / 8) * 8);
-    referenceHeight = Math.max(512, Math.round((sourceHeight * scale) / 8) * 8);
-    while (referenceWidth * referenceHeight > 1500000) {
-      if (referenceWidth >= referenceHeight) referenceWidth -= 8;
-      else referenceHeight -= 8;
-    }
-
-    const comfy = findComfyInstallation();
-    const inputDirectory = path.join(path.dirname(comfy.main), 'input');
-    fs.mkdirSync(inputDirectory, { recursive: true });
-    referenceName = 'overlayia-reference-' + crypto.randomUUID() + '.png';
-    const preparedReference = await sharp(referenceBufferInput).rotate()
-      .resize(referenceWidth, referenceHeight, { fit: 'fill', kernel: 'lanczos3' })
-      .png().toBuffer();
-    await fs.promises.writeFile(path.join(inputDirectory, referenceName), preparedReference);
-    tempReferencePath = path.join(inputDirectory, referenceName);
-  }
-  // SDXL est un modèle texte-image : il ne suit pas une consigne du type « Edit the image… ».
-  // Cette phrase consommait le budget CLIP (77 tokens) au détriment du prompt utilisateur,
-  // donc on envoie le prompt tel quel ; la fidélité à la référence vient du denoise (img2img).
-  const workflowPrompt = prompt;
-
-  imageReport(referenceName ? 'Modification de l’image de référence…' : 'Envoi du prompt à Stable Diffusion XL…');
-  const submitted = await comfyRequest('/prompt', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      prompt: buildSdxlWorkflow({ prompt: workflowPrompt, negative, width: referenceName ? referenceWidth : width, height: referenceName ? referenceHeight : height, steps: referenceName ? Math.max(30, steps) : steps, referenceName, seed, denoise }),
-      client_id: 'overlayia-' + process.pid,
-    }),
-  });
-  const { prompt_id: promptId, error, node_errors: nodeErrors } = await submitted.json();
-  if (!promptId) {
-    const detail = error?.message || JSON.stringify(nodeErrors || error || 'workflow refusé');
-    throw new Error('ComfyUI a refusé le workflow : ' + detail.slice(0, 500));
-  }
-
-  imageReport('Génération SDXL en cours…');
-  const deadline = Date.now() + 10 * 60 * 1000;
-  let image = null;
-  while (Date.now() < deadline) {
-    await sleep(1200);
-    const historyResponse = await comfyRequest('/history/' + encodeURIComponent(promptId));
-    const history = await historyResponse.json();
-    const outputs = history?.[promptId]?.outputs || {};
-    for (const node of Object.values(outputs)) {
-      if (node.images?.length) { image = node.images[0]; break; }
-    }
-    if (image) break;
-  }
-  if (!image) throw new Error('Délai dépassé : aucune image reçue après 10 minutes.');
-
-  imageReport('Récupération et sauvegarde de l’image…');
-  const query = new URLSearchParams({
-    filename: image.filename,
-    subfolder: image.subfolder || '',
-    type: image.type || 'output',
-  });
-  const imageResponse = await comfyRequest('/view?' + query.toString(), {}, 120000);
-  const buffer = Buffer.from(await imageResponse.arrayBuffer());
-  // Fichier temporaire de session uniquement : rien n'est enregistré dans Images.
-  // La graine utilisée est inscrite dans le nom pour pouvoir relancer la même génération.
-  const usedSeed = seed;
-  const safeName = 'SDXL-' + new Date().toISOString().replace(/[:.]/g, '-') + '-seed' + usedSeed + '.png';
-  const outputPath = path.join(sessionImageDirectory(), safeName);
-  fs.writeFileSync(outputPath, buffer);
-  lastGeneratedImage = outputPath;
-  imageReport('Image générée. Utilise Enregistrer pour la télécharger.');
-  return { ok: true, path: outputPath, seed: usedSeed, dataUrl: 'data:image/png;base64,' + buffer.toString('base64') };
-}
-
-ipcMain.handle('image-status', () => getImageStatus());
-ipcMain.handle('generate-image', async (_e, options) => {
-  try {
-    return await generateLocalImage(options);
-  } finally {
-    comfyGenerationInProgress = false;
-    // La copie de référence envoyée à ComfyUI n'est plus utile une fois la génération finie.
-    if (tempReferencePath) {
-      fs.rm(tempReferencePath, { force: true }, () => {});
-      tempReferencePath = null;
-    }
-    scheduleComfyIdleShutdown();
-  }
-});
-// Retouche manuelle du détourage : enregistre le PNG corrigé à côté de l'image source.
-ipcMain.handle('save-cutout', async (_e, payload) => {
-  try {
-    const source = getTrustedGeneratedImage(payload?.sourcePath);
-    const prefix = 'data:image/png;base64,';
-    const dataUrl = String(payload?.dataUrl || '');
-    if (!dataUrl.startsWith(prefix)) throw new Error('Image de retouche invalide.');
-    const buffer = Buffer.from(dataUrl.slice(prefix.length), 'base64');
-    if (buffer.length === 0 || buffer.length > 30 * 1024 * 1024) throw new Error('Taille de retouche invalide.');
-    const parsed = path.parse(source);
-    const destination = path.join(parsed.dir, parsed.name + '-retouche.png');
-    fs.writeFileSync(destination, buffer);
-    lastGeneratedImage = destination;
-    return {
-      ok: true,
-      path: destination,
-      dataUrl: prefix + buffer.toString('base64'),
-    };
-  } catch (error) { return { ok: false, message: error.message }; }
-});
 ipcMain.handle('remove-background', async (_e, imagePath) => {
   try {
     return await removeImageBackground(imagePath);
