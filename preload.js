@@ -14,6 +14,9 @@ contextBridge.exposeInMainWorld('api', {
   setSettings: (patch) => ipcRenderer.invoke('set-settings', patch),
   ollamaStatus: () => ipcRenderer.invoke('ollama-status'),
   installLocalAI: () => ipcRenderer.invoke('install-local-ai'),
+  imageStatus: () => ipcRenderer.invoke('image-status'),
+  generateImage: (options) => ipcRenderer.invoke('generate-image', options),
+  onImageProgress: (cb) => on('image-progress', cb),
 
   // Mises à jour
   checkUpdate: () => ipcRenderer.invoke('check-update'),
