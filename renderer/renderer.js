@@ -1,38 +1,64 @@
-const card = document.getElementById('card');
-const chat = document.getElementById('chat');
-const input = document.getElementById('input');
-const send = document.getElementById('send');
-const mic = document.getElementById('mic');
-const newchat = document.getElementById('newchat');
-const attach = document.getElementById('attach');
-const fileInput = document.getElementById('file');
-const tray = document.getElementById('tray');
-const modelBtn = document.getElementById('modelBtn');
-const modelName = document.getElementById('modelName');
-const menu = document.getElementById('menu');
+const api = window.api;
+const $ = (id) => document.getElementById(id);
 
+const card = $('card');
+const chat = $('chat');
+const input = $('input');
+const send = $('send');
+const mic = $('mic');
+const newchat = $('newchat');
+const attach = $('attach');
+const file = $('file');
+const tray = $('tray');
+const modelBtn = $('modelBtn');
+const modelName = $('modelName');
+const menu = $('menu');
+const settingsBtn = $('settingsBtn');
+const closePanel = $('closePanel');
+
+const MODELS = { openai: ['gpt-4o-mini', 'gpt-4o'], ollama: ['qwen2.5vl:3b'] };
 const PLACEHOLDER = "Demander n'importe quoi...";
 const MAX_IMAGE = 8 * 1024 * 1024;
 const MAX_TEXT = 200 * 1024;
-const TEXT_EXT = /\.(txt|md|json|csv|js|ts|jsx|tsx|py|html|css|xml|log|yml|yaml|ini|sql|java|c|cpp|cs|rs|go)$/i;
+const TEXT_EXT = /\.(txt|md|csv|tsv|json|js|jsx|ts|tsx|py|html|css|xml|ya?ml|ini|log|bat|ps1|cfg|java|c|cpp|h|cs|go|rs|sql)$/i;
+const ACTION_RE = /```action\s*([\s\S]*?)```/;
 
-let messages = [];      // historique envoyé à l'API
-let current = null;     // bulle de réponse en cours
+let settings = { engine: 'openai', model: 'gpt-4o-mini', level: 'low', autoUpdate: true, allowActions: false };
+let messages = [];
+let pending = [];
+let current = null; // bulle de réponse en cours
+let aiText = '';
 let busy = false;
-let model = 'gpt-4o-mini';
 let recorder = null;
 let transcribing = false;
 let closeTimer = null;
-let pending = [];       // pièces jointes en attente d'envoi
+let hovering = false;
+let dragging = false;
+let dragQueued = false;
 
-// ---------- Ouverture / fermeture ----------
-function setOpen(v) {
-  card.classList.toggle('open', v);
+// ---------- Ouverture / fermeture de la carte ----------
+function setOpen(open) {
+  card.classList.toggle('open', open);
+}
+
+function keepOpen() {
+  clearTimeout(closeTimer);
+  setOpen(true);
 }
 
 function canClose() {
-  return !messages.length && !input.value && !pending.length && !recorder && !transcribing
-    && !card.matches(':hover') && menu.hidden;
+  return (
+    messages.length === 0 &&
+    !input.value &&
+    pending.length === 0 &&
+    !recorder &&
+    !transcribing &&
+    !busy &&
+    !hovering &&
+    menu.hidden &&
+    !card.classList.contains('settings') &&
+    document.activeElement !== input
+  );
 }
 
 function scheduleClose() {
@@ -42,257 +68,305 @@ function scheduleClose() {
   }, 300);
 }
 
-input.addEventListener('focus', () => {
-  clearTimeout(closeTimer);
-  setOpen(true);
+card.addEventListener('mouseenter', () => {
+  hovering = true;
+  api.mouseIn();
+  keepOpen();
 });
+card.addEventListener('mouseleave', () => {
+  hovering = false;
+  api.mouseOut();
+  scheduleClose();
+});
+input.addEventListener('focus', keepOpen);
 input.addEventListener('blur', scheduleClose);
-card.addEventListener('pointerenter', () => clearTimeout(closeTimer));
-card.addEventListener('pointerleave', () => {
-  if (!dragging) scheduleClose();
+
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (card.classList.contains('settings')) {
+    closeSettings();
+  } else if (!menu.hidden) {
+    menu.hidden = true;
+  } else {
+    input.blur();
+    if (!messages.length) setOpen(false);
+  }
 });
-
-// ---------- Pièces jointes ----------
-function readAsDataURL(file) {
-  return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(r.result);
-    r.onerror = reject;
-    r.readAsDataURL(file);
-  });
-}
-
-async function readAttachment(f) {
-  const base = { name: f.name, size: f.size };
-  if (f.type.startsWith('image/') && f.size <= MAX_IMAGE) {
-    return { ...base, kind: 'image', url: await readAsDataURL(f) };
-  }
-  const isText = f.type.startsWith('text/') || f.type === 'application/json' || TEXT_EXT.test(f.name);
-  if (isText && f.size <= MAX_TEXT) {
-    return { ...base, kind: 'text', text: await f.text() };
-  }
-  return { ...base, kind: 'file' };
-}
-
-function formatSize(n) {
-  if (n < 1024) return n + ' o';
-  if (n < 1024 * 1024) return Math.round(n / 1024) + ' Ko';
-  return (n / (1024 * 1024)).toFixed(1) + ' Mo';
-}
-
-function renderTray() {
-  tray.innerHTML = '';
-  tray.hidden = !pending.length;
-  pending.forEach((a, i) => {
-    const el = document.createElement('div');
-    el.className = `chip ${a.kind}`;
-    el.title = `${a.name} · ${formatSize(a.size)}`;
-
-    if (a.kind === 'image') {
-      const img = document.createElement('img');
-      img.src = a.url;
-      img.alt = '';
-      el.appendChild(img);
-    } else if (a.kind === 'text') {
-      const snip = document.createElement('div');
-      snip.className = 'snip';
-      snip.textContent = a.text.slice(0, 160);
-      el.appendChild(snip);
-    } else {
-      const ext = document.createElement('div');
-      ext.className = 'fico';
-      ext.textContent = (a.name.split('.').pop() || 'FILE').slice(0, 4).toUpperCase();
-      el.appendChild(ext);
-    }
-
-    const name = document.createElement('span');
-    name.className = 'cname';
-    name.textContent = a.name;
-    el.appendChild(name);
-
-    const x = document.createElement('button');
-    x.className = 'x';
-    x.textContent = '×';
-    x.title = 'Retirer';
-    x.addEventListener('click', (e) => {
-      e.stopPropagation();
-      pending.splice(i, 1);
-      renderTray();
-    });
-    el.appendChild(x);
-
-    tray.appendChild(el);
-  });
-}
-
-attach.addEventListener('click', () => {
-  setOpen(true);
-  fileInput.click();
-});
-
-fileInput.addEventListener('change', async () => {
-  for (const f of fileInput.files) {
-    try {
-      pending.push(await readAttachment(f));
-    } catch (err) {
-      console.error('lecture impossible :', f.name, err);
-    }
-  }
-  fileInput.value = '';
-  renderTray();
-  input.focus();
-});
-
-// ---------- Messages ----------
-function addMsg(role, text) {
-  const d = document.createElement('div');
-  d.className = `msg ${role}`;
-  d.textContent = text;
-  chat.appendChild(d);
-  chat.classList.add('has');
-  chat.scrollTop = chat.scrollHeight;
-  return d;
-}
-
-// Construit le contenu envoyé : texte, fichiers texte inclus, images en pièces jointes
-function buildContent(text) {
-  let body = text;
-  for (const a of pending.filter((x) => x.kind === 'text')) {
-    body = `Fichier « ${a.name} » :\n\`\`\`\n${a.text.slice(0, 20000)}\n\`\`\`\n\n` + body;
-  }
-  const files = pending.filter((x) => x.kind === 'file');
-  if (files.length) {
-    body = `[Fichiers joints non lisibles directement : ${files.map((f) => f.name).join(', ')}]\n` + body;
-  }
-  const images = pending.filter((x) => x.kind === 'image');
-  if (!images.length) return body;
-  return [
-    { type: 'text', text: body || 'Décris ces images.' },
-    ...images.map((i) => ({ type: 'image_url', image_url: { url: i.url } })),
-  ];
-}
-
-function submit() {
-  const text = input.value.trim();
-  if ((!text && !pending.length) || busy) return;
-
-  const names = pending.map((a) => a.name);
-  const content = buildContent(text);
-  input.value = '';
-  busy = true;
-  setOpen(true);
-
-  const bubble = addMsg('user', text || 'Pièces jointes');
-  if (names.length) {
-    const att = document.createElement('div');
-    att.className = 'att';
-    att.textContent = 'Pièces jointes : ' + names.join(', ');
-    bubble.appendChild(att);
-  }
-  pending = [];
-  renderTray();
-
-  messages.push({ role: 'user', content });
-  current = addMsg('ai', '');
-  window.api.chat(messages, model);
-}
-
-function newConversation() {
-  if (busy) return;
-  messages = [];
-  pending = [];
-  renderTray();
-  chat.innerHTML = '';
-  chat.classList.remove('has');
-  input.focus();
-}
-
-send.addEventListener('click', submit);
-newchat.addEventListener('click', newConversation);
 
 input.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') submit();
-  if (e.key === 'Escape') {
-    if (!menu.hidden) menu.hidden = true;
-    else window.api.hide();
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    submit();
   }
 });
+send.addEventListener('click', submit);
 
-window.api.onToken((t) => {
-  if (!current) return;
-  current.textContent += t;
-  chat.scrollTop = chat.scrollHeight;
+// ---------- Déplacement de la carte (suit le curseur) ----------
+card.addEventListener('pointerdown', (e) => {
+  if (e.button !== 0 || e.target.closest('input, button, .menu, .chat, .tray, .panel')) return;
+  dragging = true;
+  api.dragStart();
+  card.setPointerCapture(e.pointerId);
 });
-
-window.api.onDone((err) => {
-  if (current) {
-    if (err) {
-      current.textContent = `Erreur : ${err}`;
-    } else {
-      messages.push({ role: 'assistant', content: current.textContent });
-    }
-  }
-  current = null;
-  busy = false;
-  input.focus();
-});
-
-window.api.onFocus(() => input.focus());
-
-// ---------- Modèle ----------
-function markModel() {
-  menu.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.m === model));
-  modelName.textContent = model;
-}
-
-modelBtn.addEventListener('click', (e) => {
-  e.stopPropagation();
-  menu.hidden = !menu.hidden;
-});
-
-menu.querySelectorAll('button').forEach((b) => {
-  b.addEventListener('click', (e) => {
-    e.stopPropagation();
-    model = b.dataset.m;
-    markModel();
-    menu.hidden = true;
-    input.focus();
+card.addEventListener('pointermove', () => {
+  if (!dragging || dragQueued) return;
+  dragQueued = true;
+  requestAnimationFrame(() => {
+    dragQueued = false;
+    api.dragMove();
   });
 });
+function endDrag() {
+  if (!dragging) return;
+  dragging = false;
+  api.dragEnd();
+}
+card.addEventListener('pointerup', endDrag);
+card.addEventListener('pointercancel', endDrag);
 
-document.addEventListener('pointerdown', (e) => {
-  if (!menu.hidden && !e.target.closest('.menu-wrap')) menu.hidden = true;
-});
-
-markModel();
-
-// ---------- Message vocal ----------
+// ---------- Pièces jointes ----------
 function flash(text) {
   input.placeholder = text;
   setTimeout(() => (input.placeholder = PLACEHOLDER), 2500);
 }
 
+function readAsDataURL(f) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(f);
+  });
+}
+
+async function readAttachment(f) {
+  const base = { name: f.name, size: f.size };
+  if (f.type.startsWith('image/')) {
+    if (f.size > MAX_IMAGE) throw new Error(`${f.name} : image trop lourde (8 Mo max)`);
+    return { ...base, kind: 'image', url: await readAsDataURL(f) };
+  }
+  if (f.type.startsWith('text/') || TEXT_EXT.test(f.name)) {
+    const text = await f.slice(0, MAX_TEXT).text();
+    return { ...base, kind: 'text', text, snip: text.slice(0, 160) };
+  }
+  return { ...base, kind: 'file', ext: (f.name.split('.').pop() || '?').slice(0, 4).toUpperCase() };
+}
+
+attach.addEventListener('click', () => file.click());
+file.addEventListener('change', async () => {
+  const files = [...file.files];
+  file.value = '';
+  for (const f of files) {
+    try {
+      pending.push(await readAttachment(f));
+    } catch (err) {
+      flash(err.message);
+    }
+  }
+  renderTray();
+  keepOpen();
+});
+
+function renderTray() {
+  tray.replaceChildren();
+  pending.forEach((a, i) => {
+    const chip = document.createElement('div');
+    chip.className = 'chip ' + a.kind;
+    if (a.kind === 'image') {
+      const img = document.createElement('img');
+      img.src = a.url;
+      chip.appendChild(img);
+    } else if (a.kind === 'text') {
+      const s = document.createElement('div');
+      s.className = 'snip';
+      s.textContent = a.snip;
+      chip.appendChild(s);
+    } else {
+      const f = document.createElement('div');
+      f.className = 'fico';
+      f.textContent = a.ext;
+      chip.appendChild(f);
+    }
+    const n = document.createElement('div');
+    n.className = 'cname';
+    n.textContent = a.name;
+    chip.appendChild(n);
+    const x = document.createElement('button');
+    x.className = 'x';
+    x.textContent = '×';
+    x.title = 'Retirer';
+    x.onclick = () => {
+      pending.splice(i, 1);
+      renderTray();
+      scheduleClose();
+    };
+    chip.appendChild(x);
+    tray.appendChild(chip);
+  });
+  tray.hidden = pending.length === 0;
+}
+
+// Contenu envoyé à l'IA : texte + fichiers texte inline + images
+function buildContent(text) {
+  let body = text;
+  const images = [];
+  for (const a of pending) {
+    if (a.kind === 'text') body += `\n\n[Fichier ${a.name}]\n\`\`\`\n${a.text}\n\`\`\``;
+    else if (a.kind === 'file') body += `\n\n[Fichier joint : ${a.name} (contenu non lisible directement)]`;
+    else if (a.kind === 'image') images.push(a);
+  }
+  if (!images.length) return body;
+  return [
+    { type: 'text', text: body || 'Décris cette image.' },
+    ...images.map((a) => ({ type: 'image_url', image_url: { url: a.url } })),
+  ];
+}
+
+// ---------- Messages ----------
+function addBubble(role, text, atts = []) {
+  const el = document.createElement('div');
+  el.className = 'msg ' + role;
+  el.textContent = text;
+  if (atts.length) {
+    const d = document.createElement('div');
+    d.className = 'att';
+    d.textContent = '📎 ' + atts.map((a) => a.name).join(', ');
+    el.appendChild(d);
+  }
+  chat.appendChild(el);
+  chat.classList.add('has');
+  chat.scrollTop = chat.scrollHeight;
+  return el;
+}
+
+function submit() {
+  const text = input.value.trim();
+  if (busy || (!text && !pending.length)) return;
+  const atts = pending.slice();
+  const content = buildContent(text);
+  addBubble('user', text, atts);
+  messages.push({ role: 'user', content });
+  input.value = '';
+  pending = [];
+  renderTray();
+  startAI();
+}
+
+function startAI() {
+  current = addBubble('ai', '');
+  aiText = '';
+  busy = true;
+  send.classList.add('busy');
+  api.chat(messages, {
+    engine: settings.engine,
+    model: settings.model,
+    level: settings.level,
+    allowActions: settings.allowActions,
+  });
+}
+
+api.onToken((t) => {
+  if (!current) return;
+  aiText += t;
+  current.textContent = aiText;
+  chat.scrollTop = chat.scrollHeight;
+});
+
+api.onDone((err) => {
+  busy = false;
+  send.classList.remove('busy');
+  if (!current) return;
+  if (err) {
+    current.classList.add('err');
+    current.textContent = 'Erreur : ' + err;
+  } else {
+    const m = aiText.match(ACTION_RE);
+    const shown = aiText.replace(ACTION_RE, '').trim();
+    current.textContent = shown || (m ? '' : '(réponse vide)');
+    messages.push({ role: 'assistant', content: aiText });
+    if (m && settings.allowActions) proposeAction(m[1]);
+  }
+  current = null;
+  chat.scrollTop = chat.scrollHeight;
+  scheduleClose();
+});
+
+// Commande proposée par l'IA : exécutée seulement après validation
+function proposeAction(raw) {
+  let cmd = '';
+  try {
+    cmd = String(JSON.parse(raw.trim()).command || '');
+  } catch {
+    addBubble('sys', 'Commande illisible.');
+    return;
+  }
+  if (!cmd) return;
+
+  const box = document.createElement('div');
+  box.className = 'action';
+  const label = document.createElement('div');
+  label.textContent = 'Commande proposée sur votre PC :';
+  const pre = document.createElement('pre');
+  pre.textContent = cmd;
+  const row = document.createElement('div');
+  row.className = 'act-row';
+  const no = document.createElement('button');
+  no.className = 'btn';
+  no.textContent = 'Refuser';
+  const yes = document.createElement('button');
+  yes.className = 'btn dark';
+  yes.textContent = 'Exécuter';
+  row.append(no, yes);
+  box.append(label, pre, row);
+  chat.appendChild(box);
+  chat.scrollTop = chat.scrollHeight;
+
+  const lock = () => (yes.disabled = no.disabled = true);
+  no.onclick = () => {
+    lock();
+    addBubble('sys', 'Commande refusée.');
+  };
+  yes.onclick = async () => {
+    lock();
+    yes.textContent = 'Exécution…';
+    const r = await api.runCommand(cmd);
+    addBubble('sys', (r.ok ? 'Résultat :\n' : 'Échec :\n') + r.out);
+    messages.push({ role: 'user', content: `Résultat de la commande "${cmd}" :\n${r.out}` });
+    yes.textContent = 'Exécutée';
+  };
+}
+
+newchat.addEventListener('click', () => {
+  if (busy) return;
+  messages = [];
+  pending = [];
+  chat.replaceChildren();
+  chat.classList.remove('has');
+  renderTray();
+  input.focus();
+});
+
+// ---------- Dictée vocale ----------
+mic.addEventListener('click', toggleMic);
+
 async function toggleMic() {
   if (transcribing) return;
-
   if (recorder) {
     recorder.stop();
     return;
   }
-
   let stream;
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  } catch (err) {
+  } catch {
     flash('Micro indisponible');
     return;
   }
-
   const chunks = [];
-  const rec = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-  rec.ondataavailable = (e) => {
-    if (e.data.size) chunks.push(e.data);
-  };
+  const opts = MediaRecorder.isTypeSupported('audio/webm') ? { mimeType: 'audio/webm' } : {};
+  const rec = new MediaRecorder(stream, opts);
+  recorder = rec;
+  rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
   rec.onstop = async () => {
     stream.getTracks().forEach((t) => t.stop());
     recorder = null;
@@ -300,60 +374,182 @@ async function toggleMic() {
     transcribing = true;
     mic.classList.add('busy');
     try {
-      const buf = await new Blob(chunks, { type: 'audio/webm' }).arrayBuffer();
-      const text = await window.api.transcribe(buf);
-      if (text.trim()) {
-        input.value = (input.value ? input.value + ' ' : '') + text.trim();
-      }
-    } catch (err) {
-      flash('Transcription échouée');
-    } finally {
-      transcribing = false;
-      mic.classList.remove('busy');
-      input.focus();
+      const blob = new Blob(chunks, { type: 'audio/webm' });
+      const text = await api.transcribe(await blob.arrayBuffer());
+      input.value = (input.value ? input.value + ' ' : '') + text.trim();
+    } catch {
+      flash('Transcription impossible');
     }
+    transcribing = false;
+    mic.classList.remove('busy');
+    keepOpen();
+    input.focus();
   };
-
-  recorder = rec;
   rec.start();
   mic.classList.add('rec');
-  mic.title = 'Arrêter';
-  setOpen(true);
+  keepOpen();
 }
 
-mic.addEventListener('click', toggleMic);
+// ---------- Choix du modèle ----------
+function renderMenu() {
+  menu.replaceChildren();
+  for (const m of MODELS[settings.engine]) {
+    const b = document.createElement('button');
+    b.textContent = m;
+    if (m === settings.model) b.className = 'on';
+    b.onclick = (e) => {
+      e.stopPropagation();
+      settings.model = m;
+      api.setSettings({ model: m });
+      menu.hidden = true;
+      renderMenu();
+      scheduleClose();
+    };
+    menu.appendChild(b);
+  }
+  modelName.textContent = settings.model;
+}
 
-// ---------- Déplacement : glisser sur la carte (sauf texte, boutons, historique, pièces jointes) ----------
-let dragging = false;
-let dragQueued = false;
-
-card.addEventListener('pointerdown', (e) => {
-  if (e.button !== 0) return;
-  if (e.target.closest('input, button, .menu, .chat, .tray')) return;
-  dragging = true;
-  window.api.mouseIn();
-  window.api.dragStart();
+modelBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  menu.hidden = !menu.hidden;
+  if (!menu.hidden) {
+    renderMenu();
+    keepOpen();
+  } else {
+    scheduleClose();
+  }
 });
 
-window.addEventListener('pointermove', () => {
-  if (!dragging || dragQueued) return;
-  dragQueued = true;
-  requestAnimationFrame(() => {
-    dragQueued = false;
-    window.api.dragMove();
-  });
+// ---------- Paramètres ----------
+function markSeg(seg, value) {
+  seg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.v === value));
+}
+
+async function refreshOllama() {
+  const el = $('ollamaStatus');
+  try {
+    const s = await api.ollamaStatus();
+    el.textContent = s.running && s.hasModel
+      ? 'Prête'
+      : s.installed || s.running
+        ? 'Installée, modèle à télécharger'
+        : 'Non installée';
+  } catch {
+    el.textContent = 'État inconnu';
+  }
+}
+
+function fillPanel() {
+  markSeg($('engineSeg'), settings.engine);
+  markSeg($('levelSeg'), settings.level);
+  $('autoUpd').checked = !!settings.autoUpdate;
+  $('allowAct').checked = !!settings.allowActions;
+  refreshOllama();
+  api.getVersion().then((v) => ($('version').textContent = v));
+}
+
+function openSettings() {
+  card.classList.add('settings');
+  keepOpen();
+  fillPanel();
+}
+
+function closeSettings() {
+  card.classList.remove('settings');
+  scheduleClose();
+}
+
+settingsBtn.addEventListener('click', openSettings);
+closePanel.addEventListener('click', closeSettings);
+
+$('engineSeg').addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  const engine = b.dataset.v;
+  settings.engine = engine;
+  if (!MODELS[engine].includes(settings.model)) settings.model = MODELS[engine][0];
+  api.setSettings({ engine, model: settings.model });
+  markSeg($('engineSeg'), engine);
+  renderMenu();
 });
 
-window.addEventListener('pointerup', () => {
-  if (!dragging) return;
-  dragging = false;
-  window.api.dragEnd();
-  if (!card.matches(':hover')) window.api.mouseOut();
+$('levelSeg').addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  settings.level = b.dataset.v;
+  api.setSettings({ level: settings.level });
+  markSeg($('levelSeg'), settings.level);
 });
 
-card.addEventListener('pointerenter', () => window.api.mouseIn());
-card.addEventListener('pointerleave', () => {
-  if (!dragging) window.api.mouseOut();
+$('autoUpd').addEventListener('change', (e) => {
+  settings.autoUpdate = e.target.checked;
+  api.setSettings({ autoUpdate: settings.autoUpdate });
 });
 
-input.focus();
+$('allowAct').addEventListener('change', (e) => {
+  settings.allowActions = e.target.checked;
+  api.setSettings({ allowActions: settings.allowActions });
+});
+
+$('installAI').addEventListener('click', async () => {
+  const btn = $('installAI');
+  btn.disabled = true;
+  $('ollamaProg').textContent = 'Démarrage…';
+  try {
+    $('ollamaProg').textContent = await api.installLocalAI();
+  } catch (err) {
+    $('ollamaProg').textContent = 'Erreur : ' + err.message;
+  }
+  btn.disabled = false;
+  refreshOllama();
+});
+
+api.onOllamaProgress((t) => {
+  $('ollamaProg').textContent = t;
+  if (/prête/i.test(t)) refreshOllama();
+});
+
+// ---------- Mises à jour ----------
+$('checkUpd').addEventListener('click', async () => {
+  const r = await api.checkUpdate();
+  if (!r.ok) $('updStatus').textContent = r.message;
+});
+
+api.onUpdateStatus((s) => {
+  const el = $('updStatus');
+  if (s.state === 'ready') {
+    el.textContent = `Version ${s.version} prête.`;
+    $('restartUpd').hidden = false;
+    return;
+  }
+  const texts = {
+    checking: 'Recherche de mise à jour…',
+    available: `Version ${s.version} trouvée, téléchargement…`,
+    downloading: `Téléchargement : ${s.percent} %`,
+    none: 'Vous êtes à jour.',
+    error: 'Erreur de mise à jour : ' + s.message,
+  };
+  el.textContent = texts[s.state] || '';
+});
+
+$('restartUpd').addEventListener('click', () => api.installUpdate());
+
+// ---------- Glisser depuis la carte, focus depuis les raccourcis ----------
+api.onFocus(() => {
+  keepOpen();
+  input.focus();
+});
+
+// ---------- Démarrage ----------
+(async function init() {
+  try {
+    settings = { ...settings, ...(await api.getSettings()) };
+  } catch {
+    /* valeurs par défaut */
+  }
+  if (!MODELS[settings.engine]) settings.engine = 'openai';
+  if (!MODELS[settings.engine].includes(settings.model)) settings.model = MODELS[settings.engine][0];
+  input.placeholder = PLACEHOLDER;
+  renderMenu();
+})();

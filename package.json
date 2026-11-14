@@ -6,7 +6,7 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win portable --publish never"
+    "dist": "electron-builder --win --publish never"
   },
   "devDependencies": {
     "electron": "^33.2.0",
@@ -15,21 +15,38 @@
   "build": {
     "appId": "com.rixx.overlayia",
     "productName": "OverlayIA",
+    "artifactName": "OverlayIA-Setup-${version}.${ext}",
     "files": [
       "main.js",
       "preload.js",
       "renderer/**/*"
     ],
-    "win": {
-      "target": "portable",
-      "signAndEditExecutable": false
-    },
     "asarUnpack": [
       "**/uiohook-napi/**"
     ],
-    "npmRebuild": false
+    "npmRebuild": false,
+    "publish": {
+      "provider": "github",
+      "owner": "Rixx-blend",
+      "repo": "Overlay-Windows-chat-ia",
+      "releaseType": "release"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "OverlayIA"
+    }
   },
   "dependencies": {
-    "uiohook-napi": "^1.5.0"
+    "uiohook-napi": "^1.5.0",
+    "electron-updater": "^6.3.0"
   }
 }
