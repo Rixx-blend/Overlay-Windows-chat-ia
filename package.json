@@ -1,0 +1,24 @@
+{
+  "name": "overlay-ia",
+  "version": "1.0.0",
+  "description": "Overlay de chat IA en verre liquide pour Windows",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win portable --publish never"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.rixx.overlayia",
+    "productName": "OverlayIA",
+    "files": ["main.js", "preload.js", "renderer/**/*"],
+    "win": {
+      "target": "portable",
+      "signAndEditExecutable": false
+    }
+  }
+}

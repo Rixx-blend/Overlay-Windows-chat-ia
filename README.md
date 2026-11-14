@@ -1,19 +1,22 @@
 # Overlay Windows chat IA
 
-Overlay sans cadre, toujours au premier plan, avec effet verre Windows. La barre s'agrandit au focus, puis en carte quand vous écrivez.
+Overlay de chat IA en verre liquide pour Windows, sans cadre et toujours au premier plan. La barre s'agrandit en carte quand vous écrivez.
 
-## Lancer le script
+## Lancer en développement
 
 ```
-pip install PySide6 requests keyboard
+npm install
 set OPENAI_API_KEY=votre_clé
-python overlay_ia.py
+npm start
 ```
 
 Raccourci global : `Ctrl+Alt+Espace` affiche ou masque l'overlay. `Échap` le masque quand le champ a le focus.
 
 ## Télécharger le .exe
 
-Le `.exe` est construit automatiquement par GitHub Actions à chaque push. Allez dans l'onglet **Actions**, ouvrez le dernier run « Build EXE » et téléchargez l'artefact **OverlayIA**.
+Le `.exe` est construit par GitHub Actions à chaque push. Onglet **Actions**, dernier run « Build EXE », puis téléchargez l'artefact **OverlayIA**.
 
-La clé API n'est jamais incluse dans le `.exe` : elle est lue depuis la variable d'environnement `OPENAI_API_KEY`.
+## Notes
+
+- Le flou du bureau (acrylique natif) demande Windows 11. Sur Windows 10, l'overlay reste fonctionnel avec un verre simulé, sans flou réel du fond.
+- La clé API n'est jamais incluse dans le `.exe` : elle est lue depuis la variable d'environnement `OPENAI_API_KEY`.

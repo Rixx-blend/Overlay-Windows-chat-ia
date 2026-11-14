@@ -7,12 +7,12 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-node@v4
         with:
-          python-version: "3.12"
-      - run: pip install PySide6 requests keyboard pyinstaller
-      - run: pyinstaller --onefile --windowed --name OverlayIA overlay_ia.py
+          node-version: "20"
+      - run: npm install
+      - run: npm run dist
       - uses: actions/upload-artifact@v4
         with:
           name: OverlayIA
-          path: dist/OverlayIA.exe
+          path: dist/*.exe
