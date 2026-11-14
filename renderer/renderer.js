@@ -1152,6 +1152,45 @@ $('allowAct').addEventListener('change', (e) => {
   bridge.setSettings({ allowActions: settings.allowActions });
 });
 
+// ---------- Agent visuel Computer Use ----------
+const computerStart = $('computerStart');
+const computerStop = $('computerStop');
+const computerTask = $('computerTask');
+const computerStatus = $('computerStatus');
+const computerHistory = $('computerHistory');
+function addComputerHistory(item) {
+  const line = document.createElement('div');
+  line.className = 'computer-history-item';
+  const time = new Date(item.time || Date.now()).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  line.textContent = time + ' · ' + String(item.type || 'info') + ' — ' + String(item.detail || '').slice(0, 300);
+  computerHistory.prepend(line);
+  while (computerHistory.children.length > 40) computerHistory.lastElementChild.remove();
+}
+computerStart.addEventListener('click', async () => {
+  const task = computerTask.value.trim();
+  if (!task) { computerStatus.textContent = 'Décris d’abord la tâche.'; return; }
+  computerStart.disabled = true; computerStop.disabled = false; computerStatus.textContent = 'Démarrage…';
+  const result = await bridge.computerUseStart(task);
+  if (!result.ok) { computerStatus.textContent = result.error || 'Démarrage impossible.'; computerStart.disabled = false; computerStop.disabled = true; }
+});
+computerStop.addEventListener('click', async () => {
+  computerStop.disabled = true; computerStatus.textContent = 'Arrêt demandé…'; await bridge.computerUseStop();
+});
+bridge.onComputerUseStatus((state) => {
+  computerStatus.textContent = state.message || (state.active ? 'En cours…' : 'Agent inactif');
+  computerStart.disabled = !!state.active; computerStop.disabled = !state.active;
+});
+bridge.onComputerUseHistory(addComputerHistory);
+bridge.onComputerUseConfirmation(async (request) => {
+  const approved = window.confirm('L’IA demande une validation avant cette action :\n\n' + request.reason + '\n\nAutoriser cette action ?');
+  await bridge.computerUseApprove(approved);
+  addComputerHistory({ type: approved ? 'approved' : 'rejected', detail: request.reason });
+});
+bridge.computerUseState().then((state) => {
+  (state.history || []).forEach(addComputerHistory);
+  if (state.active) { computerStatus.textContent = 'Agent déjà actif'; computerStart.disabled = true; computerStop.disabled = false; }
+}).catch(() => {});
+
 $('webSearch').addEventListener('change', (e) => {
   settings.webSearch = e.target.checked;
   bridge.setSettings({ webSearch: settings.webSearch });
