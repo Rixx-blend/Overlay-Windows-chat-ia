@@ -90,7 +90,7 @@ def main():
 
     try:
         brain = LocalVisionBrain(args.model)
-        if re.search(r"\\b(supprime|supprimer|efface|effacer|delete|remove|vider|formater)\\b", args.task, re.IGNORECASE):
+        if re.search(r"\b(supprime|supprimer|efface|effacer|delete|remove|vider|formater)\b", args.task, re.IGNORECASE):
             if not confirm("La tâche demande une suppression ou une modification potentiellement destructive. Autoriser cette tâche ?"):
                 emit("status", active=False, message="Tâche refusée : confirmation non accordée.")
                 return
