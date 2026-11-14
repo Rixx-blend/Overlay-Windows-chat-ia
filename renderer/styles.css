@@ -657,3 +657,16 @@ input::placeholder { color: rgba(30, 30, 36, 0.78); font-weight: 500; }
   stroke-linejoin:round;
 }
 .generated-actions .generated-action-btn span { white-space:nowrap; }
+
+
+/* Icônes cohérentes dans les réglages de génération */
+.image-setting-btn { gap:6px; }
+.image-setting-btn > svg {
+  width:13px; height:13px; flex:none;
+  fill:none; stroke:currentColor; stroke-width:1.7;
+  stroke-linecap:round; stroke-linejoin:round; opacity:.82;
+}
+.image-setting-btn .image-setting-label { font-size:11px; opacity:1; }
+.image-setting-btn > span:not(.image-setting-label) { font-size:10px; opacity:.58; }
+.image-popover { pointer-events:auto; }
+.image-popover select { cursor:pointer; }
