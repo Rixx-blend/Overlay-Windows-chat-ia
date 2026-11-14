@@ -522,7 +522,8 @@ Réponds directement à la demande. Évite les répétitions et arrête-toi dès
       await requestOllamaChat(toOllamaMessages(full), model, L.tokens, send);
     } else {
       const body = { model, messages: full, stream: true, max_completion_tokens: L.tokens };
-      if (/^(gpt-5|o\\d)/.test(model)) body.reasoning_effort = L.effort;
+      // reasoning_effort n'existe que sur les modèles de raisonnement (gpt-5, o3, o4…).
+      if (/^(gpt-5|o\d)/.test(model)) body.reasoning_effort = L.effort;
       const res = await fetch(API_URL, {
         method: 'POST',
         headers: {
