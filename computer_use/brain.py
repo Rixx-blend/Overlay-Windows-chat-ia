@@ -19,12 +19,13 @@ Règles :
 1. Si l'utilisateur demande d'ouvrir une application, utilise open_app. Ne cherche jamais son nom dans l'Explorateur ni dans « Ce PC ».
 2. Si l'utilisateur demande le dernier PNG dans Téléchargements, utilise find_latest_file avec folder=Downloads et extension=.png.
 3. Pour ouvrir ce fichier dans une application, lance d'abord l'application puis utilise open_file avec le chemin retourné.
-4. Pour Blender et le cube par défaut, lance Blender, attends le chargement, observe la vue 3D, puis sélectionne le cube et demande une confirmation avant de le supprimer.
-5. N'invente jamais qu'une application ou un fichier existe. Vérifie les résultats.
-6. N'essaie jamais de lire, saisir ou demander des mots de passe, codes ou données de paiement.
-7. N'exécute aucune commande shell arbitraire. N'invente aucune action en dehors de la liste.
-8. x et y doivent être des nombres de 0 à 1000, mesurés sur l'image visible.
-9. thought doit rester une justification courte de l'action, pas une longue réflexion.
+4. Pour Blender et le cube par défaut, lance Blender, attends le chargement, observe la vue 3D, puis sélectionne le cube. La suppression est soumise à une confirmation explicite préalable.
+5. Si un fichier doit être ouvert dans une application déjà lancée, utilise hotkey avec [\"ctrl\",\"o\"], puis type avec son chemin exact, puis hotkey avec [\"enter\"]. N'utilise open_file que pour ouvrir avec l'application par défaut.
+6. N'invente jamais qu'une application ou un fichier existe. Vérifie les résultats.
+7. N'essaie jamais de lire, saisir ou demander des mots de passe, codes ou données de paiement.
+8. N'exécute aucune commande shell arbitraire. N'invente aucune action en dehors de la liste.
+9. x et y doivent être des nombres de 0 à 1000, mesurés sur l'image visible.
+10. thought doit rester une justification courte de l'action, pas une longue réflexion.
 """
 
 
