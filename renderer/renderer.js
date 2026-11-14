@@ -1,3 +1,5 @@
+const PAD = 36; // doit correspondre à .stage { padding } dans styles.css
+
 const card = document.getElementById('card');
 const chat = document.getElementById('chat');
 const input = document.getElementById('input');
@@ -35,7 +37,7 @@ function submit() {
   window.api.chat(messages, model.value);
 }
 
-// Ouverture au focus, fermeture quand on quitte sans rien avoir écrit ni échangé
+// Ouverture au focus ; fermeture quand on quitte sans rien avoir écrit ni échangé
 input.addEventListener('focus', () => {
   clearTimeout(blurTimer);
   setOpen(true);
@@ -73,10 +75,10 @@ window.api.onDone((err) => {
 
 window.api.onFocus(() => input.focus());
 
-// Taille de la fenêtre = taille de la carte (+ marge du stage), en continu pendant l'animation
+// Taille de la fenêtre = carte + marge, suivie en continu pendant l'animation
 new ResizeObserver(() => {
   const r = card.getBoundingClientRect();
-  window.api.resize(Math.ceil(r.width) + 24, Math.ceil(r.height) + 24);
+  window.api.resize(Math.ceil(r.width) + PAD * 2, Math.ceil(r.height) + PAD * 2);
 }).observe(card);
 
 // La fenêtre laisse passer les clics hors de la carte

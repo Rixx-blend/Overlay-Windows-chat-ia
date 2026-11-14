@@ -2,11 +2,13 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src data: blob:" />
   <title>OverlayIA</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+  <!-- Verre liquide : shader WebGL qui déforme le fond capturé du bureau -->
+  <canvas id="glass"></canvas>
   <div class="stage">
     <main class="card" id="card">
       <div class="chat" id="chat"></div>
@@ -25,6 +27,7 @@
       </div>
     </main>
   </div>
+  <script src="glass.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>
