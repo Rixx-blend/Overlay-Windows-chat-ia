@@ -647,8 +647,9 @@ bridge.onImageProgress((message) => {
   $('imageProgress').textContent = message;
 });
 
-$('openGeneratedImage').addEventListener('click', () => {
-  $('imageProgress').textContent = 'Image enregistrée dans Images/OverlayIA.';
+$('openGeneratedImage').addEventListener('click', async () => {
+  const result = await bridge.openGeneratedImage();
+  $('imageProgress').textContent = result.message;
 });
 
 
