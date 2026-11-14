@@ -709,26 +709,28 @@ let comfyOwnedPid = null;
 let comfyIdleTimer = null;
 let comfyGenerationInProgress = false;
 
-function scheduleComfyIdleShutdown() {
+async function scheduleComfyIdleShutdown() {
   if (!comfyOwnedPid || comfyGenerationInProgress) return;
   clearTimeout(comfyIdleTimer);
-  comfyIdleTimer = setTimeout(async () => {
+  // Libère immédiatement les poids SDXL du GPU/RAM après la génération.
+  try {
+    await fetch(COMFY_URL + '/free', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ unload_models: true, free_memory: true }),
+      signal: AbortSignal.timeout(10000),
+    });
+  } catch {}
+  if (!comfyOwnedPid || comfyGenerationInProgress) return;
+  comfyIdleTimer = setTimeout(() => {
     if (!comfyOwnedPid || comfyGenerationInProgress) return;
-    try {
-      await fetch(COMFY_URL + '/free', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ unload_models: true, free_memory: true }),
-        signal: AbortSignal.timeout(10000),
-      });
-    } catch {}
     const pid = comfyOwnedPid;
     comfyOwnedPid = null;
     if (pid && process.platform === 'win32') {
       spawn('taskkill', ['/PID', String(pid), '/T', '/F'], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
     }
     imageReport('ComfyUI arrêté après inactivité. Les ressources sont libérées.');
-  }, 45000);
+  }, 15000);
   if (typeof comfyIdleTimer.unref === 'function') comfyIdleTimer.unref();
 }
 
