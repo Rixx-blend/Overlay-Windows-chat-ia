@@ -509,3 +509,65 @@ input::placeholder { color: rgba(30, 30, 36, 0.78); font-weight: 500; }
 @media (prefers-reduced-motion: reduce) {
   .px-grid span, .shimmer { animation: none; }
 }
+
+
+/* ---------- Espace de génération SDXL ---------- */
+.card.images {
+  width: 540px;
+  border-radius: 30px;
+  padding: 14px 14px 12px 22px;
+}
+.card.images .chat,
+.card.images .tray,
+.card.images .row,
+.card.images .footer,
+.card.images .panel:not(.image-panel) { display: none !important; }
+.card.images .image-panel { display: block; }
+.image-panel { max-height: 470px; }
+.image-engine-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0 10px; }
+.image-label { display: block; margin: 9px 0 5px; font-size: 12px; font-weight: 600; opacity: .8; }
+.image-panel textarea {
+  display: block;
+  width: 100%;
+  resize: vertical;
+  min-height: 54px;
+  max-height: 110px;
+  padding: 9px 11px;
+  border: 1px solid rgba(255,255,255,.65);
+  border-radius: 13px;
+  background: rgba(255,255,255,.48);
+  color: #171719;
+  font: inherit;
+  font-size: 12.5px;
+  outline: none;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.image-panel textarea:focus { border-color: rgba(20,20,20,.45); background: rgba(255,255,255,.65); }
+.image-options { display: flex; gap: 8px; margin: 10px 0; }
+.image-options label { display: flex; flex: 1; flex-direction: column; gap: 4px; font-size: 11px; opacity: .8; }
+.image-options select {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid rgba(255,255,255,.65);
+  border-radius: 9px;
+  background: rgba(255,255,255,.55);
+  color: #171719;
+  font: inherit;
+}
+.generate-btn { width: 100%; padding: 9px 14px; }
+.image-panel .btn:disabled { opacity: .45; }
+.image-panel .status-ready { color: #176b3a; opacity: 1; }
+.image-panel .status-error { color: #a12b2b; opacity: 1; }
+.image-result { margin-top: 8px; }
+.image-result img {
+  display: block;
+  width: 100%;
+  max-height: 190px;
+  object-fit: contain;
+  border-radius: 12px;
+  background: rgba(0,0,0,.08);
+}
+.image-result-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 5px; }
+.image-result-footer .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.image-help { margin: 8px 0 0; font-size: 10.5px; line-height: 1.4; }
