@@ -28,6 +28,7 @@ let setupLine = null; // ligne de progression de l'installation proposée dans l
 const PLACEHOLDER = "Demander n'importe quoi...";
 let imageMode = false;
 let imageProgressLabel = null;
+let lastGeneratedImagePath = null;
 const MAX_IMAGE = 8 * 1024 * 1024;
 const MAX_TEXT = 200 * 1024;
 const TEXT_EXT = /\.(txt|md|csv|tsv|json|js|jsx|ts|tsx|py|html|css|xml|ya?ml|ini|log|bat|ps1|cfg|java|c|cpp|h|cs|go|rs|sql)$/i;
@@ -71,6 +72,7 @@ function canClose() {
     !recorder &&
     !transcribing &&
     !busy &&
+    !imageMode &&
     !hovering &&
     menu.hidden &&
     levelMenu.hidden &&
@@ -278,6 +280,14 @@ function submit() {
   const text = input.value.trim();
   if (busy || (!text && !pending.length)) return;
   lastAsk = text;
+  const removeBgRequest = /(?:supprime|enl[eè]ve|retire|d[eé]tour(?:e|er)?|isole).{0,45}(?:fond|arri[eè]re[- ]plan)|(?:fond|arri[eè]re[- ]plan).{0,35}(?:transparent|supprim[eé])/i.test(text);
+  if (removeBgRequest && lastGeneratedImagePath && !pending.length) {
+    input.value = '';
+    addBubble('user', text);
+    messages.push({ role: 'user', content: text });
+    removeBackgroundInChat(lastGeneratedImagePath);
+    return;
+  }
   const imagePrompt = !pending.length ? (imageMode ? text : extractImagePrompt(text)) : null;
   // « ouvre X » : ouverture directe, sans passer par le modèle
   const lancer = text.match(LAUNCH_RE);
@@ -603,9 +613,10 @@ function extractImagePrompt(text) {
 
 function setImageMode(enabled) {
   imageMode = !!enabled;
+  card.classList.toggle('image-mode', imageMode);
   imageModeBtn.classList.toggle('on', imageMode);
   imageModeBtn.setAttribute('aria-pressed', String(imageMode));
-  imageModeBtn.textContent = imageMode ? 'Mode image activé' : 'Générer une image';
+  imageModeBtn.textContent = imageMode ? 'Fermer les réglages' : 'Générer une image';
   input.placeholder = imageMode ? 'Décris l’image à générer…' : PLACEHOLDER;
   if (imageMode) {
     card.classList.remove('settings');
@@ -614,6 +625,20 @@ function setImageMode(enabled) {
   }
 }
 
+const imageFormat = $('imageFormat');
+const imageWidth = $('imageWidth');
+const imageHeight = $('imageHeight');
+const imageStyle = $('imageStyle');
+const imageSteps = $('imageSteps');
+imageFormat.addEventListener('change', () => {
+  if (imageFormat.value === 'custom') return;
+  const [w, h] = imageFormat.value.split('x').map(Number);
+  imageWidth.value = String(w);
+  imageHeight.value = String(h);
+});
+[imageWidth, imageHeight].forEach((field) => field.addEventListener('input', () => {
+  imageFormat.value = 'custom';
+}));
 imageModeBtn.addEventListener('click', () => setImageMode(!imageMode));
 
 async function generateImageInChat(prompt) {
@@ -628,12 +653,30 @@ async function generateImageInChat(prompt) {
   current.replaceChildren(loader.el);
 
   try {
+    const width = Math.round(Number(imageWidth.value));
+    const height = Math.round(Number(imageHeight.value));
+    if (!Number.isInteger(width) || !Number.isInteger(height)
+      || width < 512 || height < 512 || width > 1536 || height > 1536
+      || width % 8 !== 0 || height % 8 !== 0
+      || width * height > 1500000) {
+      throw new Error('Résolution invalide. Utilise des dimensions entre 512 et 1536, multiples de 8, sans dépasser 1,5 mégapixel.');
+    }
+    const stylePrompts = {
+      photorealistic: 'photorealistic, realistic materials, natural lighting, highly detailed photography',
+      cinematic: 'cinematic composition, dramatic lighting, film still, atmospheric depth',
+      '3d': 'high-end 3D render, physically based materials, studio lighting, detailed 3D composition',
+      illustration: 'detailed digital illustration, expressive shapes, polished illustration',
+      anime: 'anime illustration, clean line art, expressive colors, detailed anime shading',
+      graphic: 'professional graphic design, strong visual hierarchy, clean composition, art direction',
+      pixel: 'pixel art, crisp pixel clusters, limited color palette, retro game aesthetic',
+    };
+    const style = stylePrompts[imageStyle.value] || '';
     const generated = await bridge.generateImage({
-      prompt: cleanPrompt,
+      prompt: style ? cleanPrompt + ', ' + style : cleanPrompt,
       negative: 'low quality, blurry, distorted, deformed, text, watermark',
-      width: 1024,
-      height: 1024,
-      steps: 25,
+      width,
+      height,
+      steps: Number(imageSteps.value) || 25,
     });
     if (!generated?.dataUrl) throw new Error('ComfyUI n’a renvoyé aucune image.');
     if (stopLoader) { stopLoader(); stopLoader = null; }
@@ -642,10 +685,22 @@ async function generateImageInChat(prompt) {
     image.className = 'chat-generated-image';
     image.alt = 'Image générée : ' + cleanPrompt;
     image.src = generated.dataUrl;
+    lastGeneratedImagePath = generated.path || null;
     const caption = document.createElement('div');
     caption.className = 'generated-caption';
     caption.textContent = 'Image générée avec SDXL · enregistrée dans Images/OverlayIA';
-    current.replaceChildren(image, caption);
+    const actions = document.createElement('div');
+    actions.className = 'generated-actions';
+    const removeBg = document.createElement('button');
+    removeBg.className = 'generated-action-btn';
+    removeBg.type = 'button';
+    removeBg.textContent = 'Supprimer le fond';
+    removeBg.disabled = !lastGeneratedImagePath;
+    removeBg.addEventListener('click', () => {
+      if (lastGeneratedImagePath) removeBackgroundInChat(lastGeneratedImagePath);
+    });
+    actions.appendChild(removeBg);
+    current.replaceChildren(image, caption, actions);
     messages.push({ role: 'assistant', content: 'Image générée avec succès.' });
   } catch (err) {
     if (stopLoader) { stopLoader(); stopLoader = null; }
@@ -664,6 +719,43 @@ async function generateImageInChat(prompt) {
 bridge.onImageProgress((message) => {
   if (imageProgressLabel) imageProgressLabel.textContent = message;
 });
+
+async function removeBackgroundInChat(imagePath) {
+  if (busy || !imagePath) return;
+  busy = true;
+  send.classList.add('busy');
+  const resultBubble = addBubble('ai', '');
+  const loader = makeLoader('Détourage local · RMBG-1.4');
+  stopLoader = loader.stop;
+  imageProgressLabel = loader.el.querySelector('.shimmer');
+  resultBubble.replaceChildren(loader.el);
+  try {
+    const result = await bridge.removeBackground(imagePath);
+    if (!result?.dataUrl) throw new Error(result?.message || 'Le modèle n’a renvoyé aucun résultat.');
+    if (stopLoader) { stopLoader(); stopLoader = null; }
+    imageProgressLabel = null;
+    const image = document.createElement('img');
+    image.className = 'chat-generated-image';
+    image.alt = 'Image détourée avec fond transparent';
+    image.src = result.dataUrl;
+    const caption = document.createElement('div');
+    caption.className = 'generated-caption';
+    caption.textContent = 'Fond supprimé · PNG avec transparence · enregistré dans Images/OverlayIA';
+    resultBubble.replaceChildren(image, caption);
+    lastGeneratedImagePath = result.path || lastGeneratedImagePath;
+    messages.push({ role: 'assistant', content: 'Arrière-plan supprimé. PNG transparent enregistré.' });
+  } catch (err) {
+    if (stopLoader) { stopLoader(); stopLoader = null; }
+    imageProgressLabel = null;
+    resultBubble.classList.add('err');
+    resultBubble.textContent = 'Suppression du fond impossible : ' + err.message;
+  } finally {
+    busy = false;
+    send.classList.remove('busy');
+    chat.scrollTop = chat.scrollHeight;
+    scheduleClose();
+  }
+}
 
 function closeSettings() {
   card.classList.remove('settings');
