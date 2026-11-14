@@ -167,6 +167,7 @@ app.whenReady().then(() => {
   globalShortcut.register('Control+Alt+B', () => win && win.webContents.send('snapshot'));
   globalShortcut.register('Control+Alt+L', toggleLive);
   globalShortcut.register('Control+Alt+P', takeScreenshot);
+  globalShortcut.register('Control+Alt+F', () => win && win.webContents.send('fps-toggle'));
 });
 
 app.on('window-all-closed', () => app.quit());

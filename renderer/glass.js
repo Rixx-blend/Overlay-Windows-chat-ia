@@ -166,21 +166,26 @@
   let liveW = 0, liveH = 0, hasLive = false;
   let snapW = 0, snapH = 0, hasSnap = false, snapVersion = 0;
 
+  // Compteurs d'images (affichés avec Ctrl+Alt+F)
+  let vFrames = 0, rFrames = 0, lastStat = performance.now();
+  let fpsEl = null;
+
   function onVideoFrame() {
     newFrame = true;
+    vFrames++;
     if (stream) video.requestVideoFrameCallback(onVideoFrame);
   }
 
   async function startStream() {
     if (stream) return true;
     try {
-      const s = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: false });
+      const s = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 30, max: 30 } }, audio: false });
       stream = s;
       try {
         await s.getVideoTracks()[0].applyConstraints({
-          width: { max: 1280 },
-          height: { max: 720 },
-          frameRate: { max: 30 },
+          width: { max: 960 },
+          height: { max: 540 },
+          frameRate: { min: 20, ideal: 30, max: 30 },
         });
       } catch (_) {
         /* on garde la résolution native */
@@ -263,6 +268,18 @@
   });
 
   window.api.onSnapshot(() => takeSnapshot());
+
+  window.api.onFpsToggle(() => {
+    if (fpsEl) {
+      fpsEl.remove();
+      fpsEl = null;
+    } else {
+      fpsEl = document.createElement('div');
+      fpsEl.id = 'fps';
+      fpsEl.textContent = 'mesure…';
+      document.body.appendChild(fpsEl);
+    }
+  });
   window.api.onGeometry((g) => (geo = g));
 
   // ---------- Rendu ----------
@@ -271,6 +288,13 @@
   let radiusSrc = '';
 
   function frame() {
+    const now = performance.now();
+    if (now - lastStat >= 1000) {
+      if (fpsEl) fpsEl.textContent = `écran ${vFrames} fps · rendu ${rFrames} fps`;
+      vFrames = 0;
+      rFrames = 0;
+      lastStat = now;
+    }
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const W = Math.round(window.innerWidth * dpr);
     const H = Math.round(window.innerHeight * dpr);
@@ -321,6 +345,7 @@
       gl.uniform1f(U.u_ca, 6 * dpr);
       gl.uniform1f(U.u_tint, 0.3);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      rFrames++;
     }
     requestAnimationFrame(frame);
   }

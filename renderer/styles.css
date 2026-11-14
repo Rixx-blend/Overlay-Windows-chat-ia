@@ -24,9 +24,9 @@ html, body {
 /* Élément vidéo source du verre : invisible mais décodé */
 #bg {
   position: fixed;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
+  width: 2px;
+  height: 2px;
+  opacity: 0.01;
   pointer-events: none;
 }
 
@@ -314,4 +314,18 @@ input::placeholder { color: rgba(30, 30, 36, 0.78); font-weight: 500; }
   margin-top: 6px;
   font-size: 11.5px;
   opacity: 0.75;
+}
+
+/* Compteur d'images (Ctrl+Alt+F) */
+#fps {
+  position: fixed;
+  top: 6px;
+  left: 6px;
+  z-index: 9;
+  padding: 3px 7px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 11px;
+  pointer-events: none;
 }

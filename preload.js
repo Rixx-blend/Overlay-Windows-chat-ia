@@ -17,4 +17,5 @@ contextBridge.exposeInMainWorld('api', {
   onVisibility: (cb) => ipcRenderer.on('visibility', (_e, v) => cb(v)),
   onMode: (cb) => ipcRenderer.on('mode', (_e, live) => cb(live)),
   onSnapshot: (cb) => ipcRenderer.on('snapshot', () => cb()),
+  onFpsToggle: (cb) => ipcRenderer.on('fps-toggle', () => cb()),
 });
