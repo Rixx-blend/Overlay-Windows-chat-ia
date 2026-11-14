@@ -139,6 +139,14 @@
         <h3>Actions sur le PC</h3>
         <label class="chk"><input type="checkbox" id="allowAct"> Autoriser l'IA à proposer des commandes (validation à chaque fois)</label>
 
+        <h3>Computer Use · contrôle visuel du PC</h3>
+        <p class="muted">L’IA observe l’écran, effectue des actions simples et vérifie le résultat. Ne saisis jamais de mot de passe dans cette zone.</p>
+        <textarea id="computerTask" rows="3" placeholder="Décris ce que l’IA doit faire sur ton PC…"></textarea>
+        <div class="row-line computer-controls">
+          <span id="computerStatus" class="muted">Agent inactif</span>
+          <div><button class="btn dark" id="computerStart">Démarrer</button> <button class="btn" id="computerStop" disabled>Arrêter</button></div>
+        </div>
+        <div id="computerHistory" class="computer-history" aria-live="polite"></div>
         <h3>Recherche web</h3>
         <label class="chk"><input type="checkbox" id="webSearch"> Chercher sur internet avant de répondre</label>
         <div class="key-field">
