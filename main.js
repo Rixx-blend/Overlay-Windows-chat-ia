@@ -1295,9 +1295,10 @@ function buildSdxlWorkflow({ prompt, negative, width, height, steps, referenceNa
         sampler_name: 'dpmpp_2m', scheduler: 'karras',
         // Denoise img2img : 0.82 recréait presque l'image (la référence était perdue).
         // 0.65 gardait la pose mais dérivait sur le visage, les cheveux et les bracelets.
-        // 0.5 conserve davantage l'identité de la référence tout en laissant le prompt
-        // ajouter l'environnement (neige, hiver). À ajuster entre 0.45 et 0.6.
-        denoise: referenceName ? 0.5 : 1,
+        // 0.5 gardait l'identité mais l'image ressortait quasi identique : la neige
+        // n'apparaissait pas. 0.6 laisse assez de liberté au prompt tout en gardant
+        // la silhouette et le visage. À ajuster entre 0.55 et 0.65.
+        denoise: referenceName ? 0.6 : 1,
         model: ['1', 0], positive: ['2', 0], negative: ['3', 0],
         latent_image: referenceName ? ['9', 0] : ['4', 0],
       },

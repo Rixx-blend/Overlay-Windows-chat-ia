@@ -853,12 +853,26 @@ async function generateImageInChat(prompt, referenceImages = []) {
     };
     const style = stylePrompts[imageStyle.value] || '';
     const hasReference = referenceImages.length > 0;
+    // SDXL comprend mal le français : les mots-clés courants sont traduits et placés
+    // en tête de prompt, là où CLIP les lit avant la limite de 77 tokens.
+    const frenchKeywords = [
+      [/\bneige\b|\bneigeux\b/i, 'snow, snowflakes, snowy ground'],
+      [/\bhiver\b|\bhivernal\b/i, 'winter scene'],
+      [/\bnuit\b/i, 'night scene'],
+      [/\bpluie\b|\bpluvieux\b/i, 'rain'],
+      [/\bdésert\b/i, 'desert'],
+      [/\bplage\b/i, 'beach'],
+      [/\bforêt\b/i, 'forest'],
+      [/\bville\b/i, 'city street'],
+    ];
+    const extraKeywords = frenchKeywords.filter(([pattern]) => pattern.test(cleanPrompt)).map(([, english]) => english);
+    const promptWithKeywords = extraKeywords.length ? extraKeywords.join(', ') + ', ' + cleanPrompt : cleanPrompt;
     // En modification, on ajoute des négatifs structurels pour éviter les doublons
     // ou les membres en trop sur un personnage déjà présent dans la référence.
     const negative = 'low quality, blurry, distorted, deformed, text, watermark'
       + (hasReference ? ', extra limbs, duplicate, multiple heads, cropped' : '');
     const generated = await bridge.generateImage({
-      prompt: style ? cleanPrompt + ', ' + style : cleanPrompt,
+      prompt: style ? promptWithKeywords + ', ' + style : promptWithKeywords,
       negative,
       width,
       height,
