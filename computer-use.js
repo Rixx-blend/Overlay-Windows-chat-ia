@@ -32,7 +32,7 @@ function createComputerUse({ desktopCapturer, screen, execFile, clipboard, getWi
   }
   async function input(action) {
     const type = action.type;
-    if (!['move', 'click', 'double_click', 'drag', 'scroll', 'type', 'press_key', 'wait', 'finish', 'confirm'].includes(type)) {
+    if (!['move', 'click', 'double_click', 'drag', 'scroll', 'type', 'press_key', 'wait', 'finish', 'confirm', 'open_app', 'find_latest_file', 'open_file'].includes(type)) {
       throw new Error('Action non autorisée : ' + String(type));
     }
     if (type === 'wait') { await sleep(Math.max(250, Math.min(5000, Number(action.ms) || 1000))); return 'Attente terminée'; }
@@ -45,6 +45,31 @@ function createComputerUse({ desktopCapturer, screen, execFile, clipboard, getWi
       pendingApproval = null;
       if (!answer) throw new Error('Action refusée par l’utilisateur.');
       return 'Action approuvée';
+    }
+    if (type === 'open_app') {
+      const appName = String(action.app || '').trim().replace(/[^\\p{L}\\p{N} ._+-]/gu, '').slice(0, 80);
+      if (!appName) throw new Error('Nom d’application manquant.');
+      const escaped = appName.replace(/'/g, "''");
+      const script = "$ErrorActionPreference='Stop'; $n='" + escaped + "'; $a=Get-StartApps | Where-Object { $_.Name -like ('*'+$n+'*') } | Sort-Object @{Expression={ if ($_.Name -ieq $n) {0} elseif ($_.Name -ilike ($n+'*')) {1} else {2} }} | Select-Object -First 1; if ($a) { Start-Process explorer.exe -ArgumentList ('shell:AppsFolder\\'+$a.AppID); Write-Output ('Application lancée : '+$a.Name) } else { $cmd=Get-Command ($n+'.exe') -ErrorAction SilentlyContinue; if ($cmd) { Start-Process $cmd.Source; Write-Output ('Application lancée : '+$cmd.Source) } else { throw ('Application introuvable dans le menu Démarrer : '+$n) } }"; 
+      const { stdout } = await exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { timeout: 15000, windowsHide: true });
+      return String(stdout || ('Lancement demandé : ' + appName)).trim();
+    }
+    if (type === 'find_latest_file') {
+      const folder = String(action.folder || 'Downloads').trim().toLowerCase();
+      const allowedFolders = { downloads: '$env:USERPROFILE\\Downloads', desktop: '$env:USERPROFILE\\Desktop', documents: '$env:USERPROFILE\\Documents', pictures: '$env:USERPROFILE\\Pictures' };
+      if (!allowedFolders[folder]) throw new Error('Dossier non pris en charge : ' + folder);
+      const ext = String(action.extension || '.png').trim().toLowerCase();
+      if (!/^\\.[a-z0-9]{1,8}$/.test(ext)) throw new Error('Extension invalide.');
+      const script = "$ErrorActionPreference='SilentlyContinue'; $p=" + allowedFolders[folder] + "; $f=Get-ChildItem -LiteralPath $p -File -Recurse -Filter '*" + ext + "' | Sort-Object LastWriteTime -Descending | Select-Object -First 1; if ($f) { Write-Output ('Fichier le plus récent : '+$f.FullName); Write-Output ('Dernière modification : '+$f.LastWriteTime) } else { Write-Output ('Aucun fichier ' + '" + ext + "' trouvé dans ' + $p) }";
+      const { stdout } = await exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { timeout: 30000, windowsHide: true });
+      return String(stdout || 'Aucun fichier correspondant trouvé.').trim();
+    }
+    if (type === 'open_file') {
+      const filePath = String(action.path || '').trim();
+      if (!filePath || filePath.length > 1000 || /[\\r\\n]/.test(filePath)) throw new Error('Chemin de fichier invalide.');
+      const escaped = filePath.replace(/'/g, "''");
+      const { stdout } = await exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', "$p='" + escaped + "'; if (Test-Path -LiteralPath $p -PathType Leaf) { Start-Process -FilePath $p; Write-Output ('Fichier ouvert : '+$p) } else { throw 'Fichier introuvable.' }"], { timeout: 15000, windowsHide: true });
+      return String(stdout || 'Ouverture du fichier demandée.').trim();
     }
     if (type === 'type') {
       const value = String(action.text || '').slice(0, 2000);
@@ -94,7 +119,7 @@ function createComputerUse({ desktopCapturer, screen, execFile, clipboard, getWi
         pendingApproval = null;
         if (!approved) throw new Error('Tâche sensible refusée.');
       }
-      const messages = [{ role: 'system', content: 'Tu es un agent autonome de contrôle visuel d’ordinateur Windows. Tu observes la capture, choisis UNE action à la fois, puis vérifies le nouvel écran. RÈGLE PRIORITAIRE POUR LANCER UNE APPLICATION : si la tâche demande d’ouvrir une application nommée (Photoshop, Blender, Chrome, etc.), ne cherche JAMAIS son nom dans l’Explorateur, dans « Ce PC » ou dans une barre de recherche de fichiers. Ouvre le menu Démarrer avec press_key key=WIN, saisis uniquement le nom de l’application avec type, appuie sur ENTER, attends avec wait, puis vérifie visuellement que l’application s’est lancée. Si aucun résultat d’application n’apparaît, essaie le nom exact ou indique que l’application est introuvable ; n’invente pas son ouverture. Après le lancement, poursuis le reste de la tâche dans l’application. Pour trouver un fichier, utilise ensuite l’Explorateur ou la boîte Ouvrir de l’application et navigue vers le dossier demandé ; ne mélange jamais le nom de l’application et l’action suivante dans une recherche de fichiers. Pour Blender, si la consigne demande de supprimer le cube par défaut, attends que Blender soit ouvert, repère le cube dans la vue 3D, sélectionne-le, puis demande confirmation avant la suppression si elle n’a pas déjà été donnée. Réponds uniquement en JSON valide avec {"type":"move|click|double_click|drag|scroll|type|press_key|wait|confirm|finish","x":0,"y":0,"text":"","key":"ENTER","ms":700,"reason":""}. Coordonnées en pixels sur la capture. Pour drag, utilise x2 et y2. Pour scroll, delta négatif = bas et positif = haut. Ne prétends jamais avoir agi sans action. Pour supprimer, écraser, envoyer, publier, acheter, installer, télécharger un exécutable, modifier la sécurité ou fermer une session, demande d’abord une confirmation avec type=confirm et une raison claire. Ne demande jamais de mot de passe ni de code de connexion. Ne lance aucun terminal ni commande. Termine avec type=finish quand la tâche est achevée ou impossible.' }, { role: 'user', content: 'Tâche : ' + String(task).slice(0, 1000) }];
+      const messages = [{ role: 'system', content: 'Tu es un agent autonome de contrôle visuel et système Windows. Tu peux choisir UNE action à la fois. ACTIONS SYSTÈME DISPONIBLES : open_app avec {\"type\":\"open_app\",\"app\":\"Blender\"} lance une application installée via le menu Démarrer Windows ; find_latest_file avec {\"type\":\"find_latest_file\",\"folder\":\"Downloads\",\"extension\":\".png\"} cherche le fichier correspondant le plus récent dans le dossier demandé ; open_file avec {\"type\":\"open_file\",\"path\":\"chemin complet\"} ouvre un fichier. RÈGLE PRIORITAIRE : dès qu’une tâche demande d’ouvrir une application nommée, utilise open_app. Ne cherche jamais le nom d’une application dans l’Explorateur ou « Ce PC ». Si la tâche demande de trouver le dernier PNG dans Téléchargements, utilise find_latest_file avec folder=Downloads et extension=.png, puis communique le chemin trouvé. Pour ouvrir le PNG dans Photoshop, utilise open_file sur le chemin trouvé après avoir lancé Photoshop. Pour Blender, utilise open_app avec app=Blender, attends le lancement, observe l’écran et supprime le cube par défaut uniquement après confirmation utilisateur déjà reçue ou demande une confirmation via type=confirm. Pour toute autre interaction, observe la capture, choisis une action, puis vérifie le nouvel écran. Réponds uniquement en JSON valide avec {"type":"move|click|double_click|drag|scroll|type|press_key|wait|confirm|finish","x":0,"y":0,"text":"","key":"ENTER","ms":700,"reason":""}. Coordonnées en pixels sur la capture. Pour drag, utilise x2 et y2. Pour scroll, delta négatif = bas et positif = haut. Ne prétends jamais avoir agi sans action. Pour supprimer, écraser, envoyer, publier, acheter, installer, télécharger un exécutable, modifier la sécurité ou fermer une session, demande d’abord une confirmation avec type=confirm et une raison claire. Ne demande jamais de mot de passe ni de code de connexion. Ne lance aucun terminal ni commande. Termine avec type=finish quand la tâche est achevée ou impossible.' }, { role: 'user', content: 'Tâche : ' + String(task).slice(0, 1000) }];
       let finished = false;
       for (let step = 0; step < 18 && !stopped && id === runId; step++) {
         emit('computer-use-status', { active: true, message: 'Observation ' + (step + 1) + '/18' });
