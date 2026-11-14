@@ -1385,7 +1385,9 @@ async function removeImageBackground(imagePath) {
   // Sur une scène sans détourage net (ciel, décor continu), le modèle marque tout
   // comme premier plan : le fond reste alors opaque. Dans ce cas on resserre le seuil
   // pour ne garder que les zones les plus certaines comme sujet.
-  let mask = buildMask(0.46);
+  // Seuil plus strict : sur un décor flou ou très détaillé, le modèle hésite sur les
+  // zones proches du sujet. Un seuil plus haut évite de garder le fond autour.
+  let mask = buildMask(0.6);
   let foregroundPercent = foregroundShare(mask) * 100;
   if (foregroundPercent > 90) {
     imageReport('Masque trop large (décor continu détecté). Resserrement du seuil…');
