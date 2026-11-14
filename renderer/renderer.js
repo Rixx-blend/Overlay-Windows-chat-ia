@@ -15,9 +15,7 @@ const modelName = $('modelName');
 const menu = $('menu');
 const settingsBtn = $('settingsBtn');
 const closePanel = $('closePanel');
-const imagesBtn = $('imagesBtn');
-const closeImages = $('closeImages');
-const imagePanel = $('imagePanel');
+const imageModeBtn = $('imageModeBtn');
 
 
 // Seule IA utilisée : la locale (Ollama). Pas de clé API nécessaire pour le chat.
@@ -28,6 +26,8 @@ const levelName = $('levelName');
 const levelMenu = $('levelMenu');
 let setupLine = null; // ligne de progression de l'installation proposée dans le chat
 const PLACEHOLDER = "Demander n'importe quoi...";
+let imageMode = false;
+let imageProgressLabel = null;
 const MAX_IMAGE = 8 * 1024 * 1024;
 const MAX_TEXT = 200 * 1024;
 const TEXT_EXT = /\.(txt|md|csv|tsv|json|js|jsx|ts|tsx|py|html|css|xml|ya?ml|ini|log|bat|ps1|cfg|java|c|cpp|h|cs|go|rs|sql)$/i;
@@ -104,9 +104,7 @@ input.addEventListener('blur', scheduleClose);
 
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
-  if (card.classList.contains('images')) {
-    closeImagePanel();
-  } else if (card.classList.contains('settings')) {
+  if (card.classList.contains('settings')) {
     closeSettings();
   } else if (!menu.hidden || !levelMenu.hidden) {
     menu.hidden = true;
@@ -280,6 +278,7 @@ function submit() {
   const text = input.value.trim();
   if (busy || (!text && !pending.length)) return;
   lastAsk = text;
+  const imagePrompt = !pending.length ? (imageMode ? text : extractImagePrompt(text)) : null;
   // « ouvre X » : ouverture directe, sans passer par le modèle
   const lancer = text.match(LAUNCH_RE);
   if (lancer && !pending.length) {
@@ -299,6 +298,11 @@ function submit() {
   input.value = '';
   pending = [];
   renderTray();
+  if (imagePrompt !== null) {
+    setImageMode(false);
+    generateImageInChat(imagePrompt || text);
+    return;
+  }
   startAI();
 }
 
@@ -586,152 +590,80 @@ function openSettings() {
   fillPanel();
 }
 
-// ---------- Générateur local Stable Diffusion XL ----------
-function closeImagePanel() {
-  card.classList.remove('images');
-  scheduleClose();
+// ---------- Génération d’images directement dans le chat ----------
+function extractImagePrompt(text) {
+  const normalized = String(text || '').trim();
+  const asksForImage = /(?:g[ée]n[èe]re|cr[ée]e|dessine|produis|fais)\b[\s\S]{0,100}\b(?:image|illustration|visuel|photo|dessin)\b/i.test(normalized);
+  if (!asksForImage) return null;
+  return normalized
+    .replace(/^.*?\b(?:image|illustration|visuel|photo|dessin)\b\s*/i, '')
+    .replace(/^(?:de|d['’]|du|des|sur|avec|représentant)\s*/i, '')
+    .trim() || normalized;
 }
 
-async function refreshSdxlStatus() {
-  const status = $('sdxlStatus');
-  status.textContent = 'Vérification de ComfyUI…';
-  try {
-    const result = await bridge.imageStatus();
-    status.textContent = result.message;
-    status.classList.toggle('status-ready', result.running && result.installed);
-    status.classList.toggle('status-error', !result.running || !result.installed);
-  } catch (err) {
-    status.textContent = 'État indisponible : ' + err.message;
-    status.classList.add('status-error');
+function setImageMode(enabled) {
+  imageMode = !!enabled;
+  imageModeBtn.classList.toggle('on', imageMode);
+  imageModeBtn.setAttribute('aria-pressed', String(imageMode));
+  imageModeBtn.textContent = imageMode ? 'Mode image activé' : 'Générer une image';
+  input.placeholder = imageMode ? 'Décris l’image à générer…' : PLACEHOLDER;
+  if (imageMode) {
+    card.classList.remove('settings');
+    keepOpen();
+    input.focus();
   }
 }
 
-function openImagePanel() {
-  card.classList.remove('settings');
-  card.classList.add('images');
-  keepOpen();
-  refreshSdxlStatus();
-}
+imageModeBtn.addEventListener('click', () => setImageMode(!imageMode));
 
-imagesBtn.addEventListener('click', openImagePanel);
-closeImages.addEventListener('click', closeImagePanel);
-$('checkSdxl').addEventListener('click', refreshSdxlStatus);
+async function generateImageInChat(prompt) {
+  const cleanPrompt = String(prompt || '').trim();
+  if (!cleanPrompt || busy) return;
+  busy = true;
+  send.classList.add('busy');
+  current = addBubble('ai', '');
+  const loader = makeLoader('Génération de l’image');
+  stopLoader = loader.stop;
+  imageProgressLabel = loader.el.querySelector('.shimmer');
+  current.replaceChildren(loader.el);
 
-// Grille de pixels animée pendant la génération, puis transition colorée vers l'image.
-function buildImagePixelGrid() {
-  const reveal = $('imageReveal');
-  const grid = $('imagePixelGrid');
-  const width = Math.max(1, reveal.clientWidth || 500);
-  const height = Math.max(1, reveal.clientHeight || 190);
-  const cellSize = 16;
-  const cols = Math.ceil(width / cellSize);
-  const rows = Math.ceil(height / cellSize);
-  grid.replaceChildren();
-  grid.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
-  grid.style.gridTemplateRows = `repeat(${rows}, minmax(0, 1fr))`;
-  for (let i = 0; i < cols * rows; i++) {
-    const cell = document.createElement('span');
-    cell.className = 'image-pixel';
-    cell.style.setProperty('--blink-delay', `${Math.random() * 1.4}s`);
-    cell.style.setProperty('--fade-delay', `${Math.random() * 0.45}s`);
-    grid.appendChild(cell);
-  }
-  return { cols, rows };
-}
-
-function startImagePixelLoader() {
-  const reveal = $('imageReveal');
-  const img = $('generatedImage');
-  $('imageResult').hidden = false;
-  img.removeAttribute('src');
-  reveal.classList.remove('image-visible', 'image-revealing');
-  reveal.classList.add('image-generating');
-  buildImagePixelGrid();
-}
-
-function revealGeneratedImage(dataUrl) {
-  return new Promise((resolve, reject) => {
-    const reveal = $('imageReveal');
-    const img = $('generatedImage');
-    const grid = $('imagePixelGrid');
-    const dimensions = buildImagePixelGrid();
-    let processed = false;
-
-    const finish = () => {
-      if (processed) return;
-      processed = true;
-      try {
-        const canvas = document.createElement('canvas');
-        canvas.width = dimensions.cols;
-        canvas.height = dimensions.rows;
-        const ctx = canvas.getContext('2d', { willReadFrequently: true });
-        if (!ctx) throw new Error('Canvas indisponible');
-        ctx.drawImage(img, 0, 0, dimensions.cols, dimensions.rows);
-        const pixels = ctx.getImageData(0, 0, dimensions.cols, dimensions.rows).data;
-        [...grid.children].forEach((cell, index) => {
-          const offset = index * 4;
-          cell.style.backgroundColor = `rgb(${pixels[offset]}, ${pixels[offset + 1]}, ${pixels[offset + 2]})`;
-        });
-        reveal.classList.remove('image-generating');
-        reveal.classList.add('image-revealing');
-        requestAnimationFrame(() => {
-          setTimeout(() => reveal.classList.add('image-visible'), 420);
-          setTimeout(() => {
-            grid.replaceChildren();
-            reveal.classList.remove('image-revealing');
-            resolve();
-          }, 1450);
-        });
-      } catch (err) {
-        reveal.classList.remove('image-generating', 'image-revealing');
-        reveal.classList.add('image-visible');
-        resolve();
-      }
-    };
-
-    img.onload = finish;
-    img.onerror = () => reject(new Error("Impossible d'afficher l'image générée."));
-    img.src = dataUrl;
-    if (img.complete && img.naturalWidth > 0) finish();
-  });
-}
-
-$('generateImage').addEventListener('click', async () => {
-  const button = $('generateImage');
-  button.disabled = true;
-  startImagePixelLoader();
-  $('imageProgress').textContent = 'Préparation…';
   try {
     const generated = await bridge.generateImage({
-      prompt: $('imagePrompt').value,
-      negative: $('imageNegative').value,
-      width: Number($('imageWidth').value),
-      height: Number($('imageHeight').value),
-      steps: Number($('imageSteps').value),
+      prompt: cleanPrompt,
+      negative: 'low quality, blurry, distorted, deformed, text, watermark',
+      width: 1024,
+      height: 1024,
+      steps: 25,
     });
-    await revealGeneratedImage(generated.dataUrl);
-    $('imageSavedPath').textContent = 'Enregistrée dans Images/OverlayIA';
-    $('imageProgress').textContent = 'Génération terminée.';
+    if (!generated?.dataUrl) throw new Error('ComfyUI n’a renvoyé aucune image.');
+    if (stopLoader) { stopLoader(); stopLoader = null; }
+    imageProgressLabel = null;
+    const image = document.createElement('img');
+    image.className = 'chat-generated-image';
+    image.alt = 'Image générée : ' + cleanPrompt;
+    image.src = generated.dataUrl;
+    const caption = document.createElement('div');
+    caption.className = 'generated-caption';
+    caption.textContent = 'Image générée avec SDXL · enregistrée dans Images/OverlayIA';
+    current.replaceChildren(image, caption);
+    messages.push({ role: 'assistant', content: 'Image générée avec succès.' });
   } catch (err) {
-    $('imageReveal').classList.remove('image-generating', 'image-revealing', 'image-visible');
-    $('imagePixelGrid').replaceChildren();
-    $('imageResult').hidden = true;
-    $('imageProgress').textContent = 'Erreur : ' + err.message;
-    refreshSdxlStatus();
+    if (stopLoader) { stopLoader(); stopLoader = null; }
+    imageProgressLabel = null;
+    current.classList.add('err');
+    current.textContent = 'Impossible de générer l’image : ' + err.message;
   } finally {
-    button.disabled = false;
+    busy = false;
+    send.classList.remove('busy');
+    current = null;
+    chat.scrollTop = chat.scrollHeight;
+    scheduleClose();
   }
-});
+}
 
 bridge.onImageProgress((message) => {
-  $('imageProgress').textContent = message;
+  if (imageProgressLabel) imageProgressLabel.textContent = message;
 });
-
-$('openGeneratedImage').addEventListener('click', async () => {
-  const result = await bridge.openGeneratedImage();
-  $('imageProgress').textContent = result.message;
-});
-
 
 function closeSettings() {
   card.classList.remove('settings');
