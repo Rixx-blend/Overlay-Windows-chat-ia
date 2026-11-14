@@ -2,7 +2,7 @@ const { app, BrowserWindow, globalShortcut, ipcMain, screen, desktopCapturer, se
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execFile, spawn } = require('child_process');
+const { execFile, spawn, spawnSync } = require('child_process');
 const { autoUpdater } = require('electron-updater');
 
 // Surveillance globale du clavier et de la souris (Win+Maj+S, Impr écran)
@@ -190,18 +190,40 @@ const report = (text) => {
 };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const ollamaExe = () => path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Ollama', 'ollama.exe');
-
-// Lance le serveur Ollama en arrière-plan (sans fenêtre)
-function startOllamaServer() {
+// Même logique qu'IA VOCAL : Ollama trouvé dans le PATH ou dans son dossier d'installation
+function findOllama() {
+  const candidats = [
+    path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Ollama', 'ollama.exe'),
+    path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Ollama', 'ollama.exe'),
+  ];
+  const local = candidats.find((c) => fs.existsSync(c));
+  if (local) return local;
   try {
-    const cmd = fs.existsSync(ollamaExe()) ? ollamaExe() : 'ollama';
-    const child = spawn(cmd, ['serve'], { detached: true, stdio: 'ignore', windowsHide: true });
-    child.on('error', () => {});
-    child.unref();
+    const r = spawnSync('where', ['ollama'], { windowsHide: true, encoding: 'utf8' });
+    const line = (r.stdout || '').split(/\r?\n/).find((l) => l.trim());
+    return line ? line.trim() : null;
   } catch {
-    /* ignoré : le statut sera affiché dans les paramètres */
+    return null;
   }
+}
+
+// Lance « ollama serve » en arrière-plan, sans fenêtre
+function startOllamaServer() {
+  const exe = findOllama();
+  if (!exe) return false;
+  const child = spawn(exe, ['serve'], { detached: true, stdio: 'ignore', windowsHide: true });
+  child.on('error', () => {});
+  child.unref();
+  return true;
+}
+
+async function attendreServeur(ms) {
+  const fin = Date.now() + ms;
+  while (Date.now() < fin) {
+    if (await ollamaTags()) return true;
+    await sleep(1000);
+  }
+  return false;
 }
 
 async function ollamaTags() {
@@ -256,13 +278,22 @@ async function downloadTo(url, dest, onPercent) {
   await new Promise((resolve, reject) => ws.end((err) => (err ? reject(err) : resolve())));
 }
 
-function runInstaller(file) {
-  return new Promise((resolve, reject) => {
-    execFile(file, ['/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'], { windowsHide: true }, (err) => {
-      if (err) reject(err);
-      else resolve();
-    });
+// Préchauffe le modèle : il reste en mémoire (keep_alive -1), donc le premier message est rapide
+async function prechauffer() {
+  report('Démarrage du cerveau local…');
+  const r = await fetch(OLLAMA + '/api/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: OLLAMA_MODEL,
+      prompt: 'Réponds simplement OK.',
+      stream: false,
+      keep_alive: -1,
+      options: { num_predict: 1, num_ctx: 2048 },
+    }),
   });
+  const j = await r.json();
+  if (j.error) throw new Error(j.error);
 }
 
 async function pullModel() {
@@ -272,41 +303,51 @@ async function pullModel() {
     body: JSON.stringify({ model: OLLAMA_MODEL, stream: true }),
   });
   if (!res.ok) throw new Error(`téléchargement du modèle HTTP ${res.status}`);
+  let dernier = -20;
   await readLines(res, (line) => {
     const j = JSON.parse(line);
     if (j.error) throw new Error(j.error);
-    if (j.total && j.completed) report(`Modèle ${OLLAMA_MODEL} : ${Math.round((j.completed / j.total) * 100)} %`);
-    else if (j.status) report(j.status);
+    if (j.total && j.completed != null) {
+      const pct = Math.floor((j.completed * 100) / j.total);
+      if (pct >= dernier + 20) {
+        dernier = pct;
+        report(`Téléchargement du modèle local : ${pct} %`);
+      }
+    }
   });
 }
 
-// Installe Ollama (si besoin), démarre son serveur et télécharge qwen2.5vl:3b
+// Prépare l'IA locale comme IA VOCAL : Ollama (installé si besoin), serveur, modèle, préchauffage
 async function installLocalAI() {
-  report('Vérification d’Ollama…');
-  let tags = await ollamaTags();
-  if (!tags) {
-    if (!fs.existsSync(ollamaExe())) {
+  try {
+    report('Vérification d’Ollama…');
+    if (!findOllama()) {
       report('Téléchargement d’Ollama…');
-      const installer = path.join(os.tmpdir(), 'OllamaSetup.exe');
-      await downloadTo(OLLAMA_INSTALLER_URL, installer, (p) => report(`Téléchargement d’Ollama : ${p} %`));
-      report('Installation d’Ollama…');
-      await runInstaller(installer);
+      const installeur = path.join(os.tmpdir(), 'OllamaSetup.exe');
+      await downloadTo(OLLAMA_INSTALLER_URL, installeur, (p) => report(`Téléchargement d’Ollama : ${p} %`));
+      const erreur = await shell.openPath(installeur);
+      if (erreur) throw new Error('impossible d’ouvrir l’installeur : ' + erreur);
+      report('Terminez l’installation d’Ollama dans la fenêtre ouverte. La suite démarre toute seule.');
+      const fin = Date.now() + 15 * 60 * 1000;
+      while (!findOllama() && Date.now() < fin) await sleep(3000);
+      if (!findOllama()) throw new Error('Ollama n’est pas installé');
     }
-    report('Démarrage d’Ollama…');
-    startOllamaServer();
-    for (let i = 0; i < 60 && !tags; i++) {
-      await sleep(1000);
-      tags = await ollamaTags();
+    if (!(await ollamaTags())) {
+      report('Démarrage du moteur local Ollama…');
+      startOllamaServer();
+      if (!(await attendreServeur(45000))) throw new Error('le service Ollama ne démarre pas');
     }
-    if (!tags) throw new Error('Ollama ne répond pas. Lancez-le depuis le menu Démarrer puis réessayez.');
+    const tags = await ollamaTags();
+    const noms = (tags?.models || []).map((m) => m.name);
+    if (!noms.includes(OLLAMA_MODEL) && !noms.includes(OLLAMA_MODEL + ':latest')) await pullModel();
+    await prechauffer();
+    report('IA locale prête.');
+    return 'IA locale prête.';
+  } catch (err) {
+    const msg = 'Préparation locale impossible : ' + err.message;
+    report(msg);
+    throw new Error(msg);
   }
-  const has = (tags.models || []).some((m) => m.name === OLLAMA_MODEL || m.name === OLLAMA_MODEL + ':latest');
-  if (!has) {
-    report(`Téléchargement du modèle ${OLLAMA_MODEL}…`);
-    await pullModel();
-  }
-  report('IA locale prête.');
-  return 'IA locale prête.';
 }
 
 function toOllamaMessages(msgs) {
@@ -324,7 +365,8 @@ function toOllamaMessages(msgs) {
 ipcMain.on('chat', async (e, payload) => {
   const { messages, engine, model, level, allowActions } = payload;
   const L = LEVELS[level] || LEVELS.low;
-  let sys = `Tu es un assistant installé sur le PC de l'utilisateur, dans un overlay. ${L.hint}`;
+  let sys = `Tu es un assistant installé sur le PC de l'utilisateur, dans un overlay. ${L.hint}
+Tu fonctionnes localement. Ton modèle est Qwen 2.5 VL 3B, développé par Alibaba Cloud, exécuté localement par Ollama. Ne prétends jamais être un autre modèle et n'invente jamais de version.`;
   if (allowActions) sys += ACTION_HINT;
   const full = [{ role: 'system', content: sys }, ...messages];
   const send = (channel, value) => {
@@ -340,7 +382,8 @@ ipcMain.on('chat', async (e, payload) => {
           model,
           messages: toOllamaMessages(full),
           stream: true,
-          options: { num_predict: L.tokens, temperature: 0.6 },
+          keep_alive: -1,
+          options: { num_predict: L.tokens, temperature: 0.3, num_ctx: 4096 },
         }),
       });
       if (!res.ok) throw new Error(`Ollama HTTP ${res.status}. L'IA locale est-elle installée ?`);
@@ -411,7 +454,7 @@ ipcMain.handle('ollama-status', async () => {
   const tags = await ollamaTags();
   const models = tags ? (tags.models || []).map((m) => m.name) : [];
   return {
-    installed: fs.existsSync(ollamaExe()),
+    installed: !!findOllama(),
     running: !!tags,
     hasModel: models.some((n) => n === OLLAMA_MODEL || n === OLLAMA_MODEL + ':latest'),
   };
@@ -639,7 +682,7 @@ app.whenReady().then(() => {
   // IA locale déjà installée mais arrêtée : on relance son serveur sans rien demander.
   // L'installation, elle, est proposée dans l'overlay (le renderer demande).
   ollamaTags().then((t) => {
-    if (!t && fs.existsSync(ollamaExe())) startOllamaServer();
+    if (!t) startOllamaServer();
   });
 });
 
