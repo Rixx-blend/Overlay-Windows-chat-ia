@@ -36,6 +36,8 @@ let pending = [];
 let current = null; // bulle de réponse en cours
 let aiText = '';
 let lastAsk = ''; // dernier message de l'utilisateur : dit si son action était demandée
+// « ouvre Blender », « lance la calculatrice »… : le nom de l'application est le groupe 2
+const LAUNCH_RE = /^(?:peux[- ]tu\s+)?(ouvre|ouvrir|lance|lancer|d[ée]marre|d[ée]marrer)(?:-moi)?\s+(?:moi\s+)?(?:le\s+|la\s+|les\s+|l')?(.+?)\s*[.!?]*$/i;
 // Verbes d'action demandés par l'utilisateur : dans ce cas la commande est exécutée sans confirmation
 const ASK_ACTION_RE = /(ouvr|lanc|d[ée]marr|ferm|supprim|effac|install|ex[ée]cut|affich|minimis|maximis|cr[ée]e|renomm|copi|colle)/i;
 const LEVEL_ORDER = ['low', 'high', 'max'];
@@ -272,6 +274,18 @@ function submit() {
   const text = input.value.trim();
   if (busy || (!text && !pending.length)) return;
   lastAsk = text;
+  // « ouvre X » : ouverture directe, sans passer par le modèle
+  const lancer = text.match(LAUNCH_RE);
+  if (lancer && !pending.length) {
+    input.value = '';
+    addBubble('user', text);
+    messages.push({ role: 'user', content: text });
+    bridge.launchApp(lancer[2]).then((r) => {
+      addBubble('sys', r.out);
+      messages.push({ role: 'user', content: `Résultat : ${r.out}` });
+    });
+    return;
+  }
   const atts = pending.slice();
   const content = buildContent(text);
   addBubble('user', text, atts);

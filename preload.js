@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('api', {
   chat: (messages, opts) => ipcRenderer.send('chat', { messages, ...opts }),
   transcribe: (buf) => ipcRenderer.invoke('transcribe', buf),
   runCommand: (command) => ipcRenderer.invoke('run-command', command),
+  launchApp: (nom) => ipcRenderer.invoke('launch-app', nom),
 
   // Paramètres et IA locale
   getSettings: () => ipcRenderer.invoke('get-settings'),

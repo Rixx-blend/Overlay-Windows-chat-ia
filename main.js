@@ -32,7 +32,7 @@ const LEVELS = {
 
 const ACTION_HINT = `
 
-Tu PEUX ouvrir des logiciels et agir sur le PC : ne dis jamais que tu ne peux pas le faire, et n'invente jamais de raccourci clavier.
+Tu PEUX ouvrir des logiciels et agir sur le PC : ne dis jamais que tu ne peux pas le faire, et n'invente jamais de raccourci clavier. Si l'utilisateur te demande de contrôler le PC (fichiers, fermer une appli, réglages, etc.), réponds TOUJOURS par un bloc action, jamais par un refus.
 Quand l'utilisateur demande une action, réponds par une phrase courte, puis ajoute UNE commande PowerShell dans un bloc exactement ainsi :
 \`\`\`action
 {"tool":"powershell","command":"..."}
@@ -427,6 +427,129 @@ Tu fonctionnes localement. Ton modèle est Qwen 2.5 VL 3B, développé par Aliba
       down ? "L'IA locale ne répond pas. Ouvrez les paramètres (engrenage) et cliquez sur Installer." : err.message,
     );
   }
+});
+
+// ---------- Ouvrir une application par son nom (tolère les fautes de dictée) ----------
+const ALIAS_APP = {
+  'bloc notes': 'notepad',
+  'bloc-notes': 'notepad',
+  calculatrice: 'calc',
+  explorateur: 'explorer',
+  'gestionnaire des taches': 'taskmgr',
+  terminal: 'wt',
+  'premier pro': 'premiere pro',
+  'after effect': 'after effects',
+};
+
+const normaliser = (t) =>
+  String(t).normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
+// Distance d'édition simple : tolère une lettre mal reconnue
+function distance(a, b) {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++)
+    for (let j = 1; j <= b.length; j++)
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return d[a.length][b.length];
+}
+
+function scoreNom(demande, libelle) {
+  const d = normaliser(demande);
+  const l = normaliser(libelle);
+  if (!d || !l) return 0;
+  if (d === l) return 1;
+  if (l.includes(d)) return 0.95;
+  const mots = d.split(' ');
+  const motsL = l.split(' ');
+  const ok = mots.filter((m) =>
+    motsL.some((x) => x.startsWith(m) || (m.length >= 4 && x.length >= 4 && distance(m, x) <= 1)),
+  ).length;
+  return (ok / mots.length) * 0.9;
+}
+
+// Raccourcis du menu Démarrer (utilisateur et ensemble du PC)
+function listerRaccourcis() {
+  const dossiers = [
+    path.join(process.env.APPDATA || '', 'Microsoft', 'Windows', 'Start Menu', 'Programs'),
+    path.join(process.env.ProgramData || 'C:\\ProgramData', 'Microsoft', 'Windows', 'Start Menu', 'Programs'),
+  ];
+  const sortie = [];
+  const parcourir = (dossier, profondeur) => {
+    if (profondeur > 4) return;
+    let entrees = [];
+    try {
+      entrees = fs.readdirSync(dossier, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entrees) {
+      const p = path.join(dossier, e.name);
+      if (e.isDirectory()) parcourir(p, profondeur + 1);
+      else if (e.name.toLowerCase().endsWith('.lnk')) sortie.push({ label: e.name.slice(0, -4), file: p });
+    }
+  };
+  dossiers.forEach((d) => parcourir(d, 0));
+  return sortie;
+}
+
+// Cherche un exécutable (ex. blender.exe) dans un dossier, sur 3 niveaux au plus
+function chercherExe(dossier, nomExe, profondeur = 0) {
+  if (profondeur > 3) return null;
+  let entrees = [];
+  try {
+    entrees = fs.readdirSync(dossier, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+  for (const e of entrees) {
+    if (!e.isDirectory() && e.name.toLowerCase() === nomExe) return path.join(dossier, e.name);
+  }
+  for (const e of entrees) {
+    if (e.isDirectory()) {
+      const trouve = chercherExe(path.join(dossier, e.name), nomExe, profondeur + 1);
+      if (trouve) return trouve;
+    }
+  }
+  return null;
+}
+
+function trouverApplication(nom) {
+  const cle = normaliser(nom);
+  const alias = ALIAS_APP[cle] || cle;
+  if (alias === 'blender') {
+    const b = chercherExe('C:\\Program Files\\Blender Foundation', 'blender.exe');
+    if (b) return b;
+  }
+  let meilleur = null;
+  let score = 0;
+  let second = 0;
+  for (const r of listerRaccourcis()) {
+    const s = scoreNom(alias, r.label);
+    if (s > score) {
+      second = score;
+      score = s;
+      meilleur = r;
+    } else if (s > second) second = s;
+  }
+  // Sûr : correspondance nette et sans second candidat proche
+  if (meilleur && score >= 0.9 && score - second >= 0.05) return meilleur.file;
+  try {
+    const r = spawnSync('where', [alias], { windowsHide: true, encoding: 'utf8' });
+    const ligne = (r.stdout || '').split(/\r?\n/).find((l) => l.trim());
+    if (ligne) return ligne.trim();
+  } catch {
+    /* rien trouvé */
+  }
+  return null;
+}
+
+ipcMain.handle('launch-app', async (_e, nom) => {
+  if (!settings.allowActions) return { ok: false, out: 'Les actions sur le PC sont désactivées dans les paramètres.' };
+  const cible = trouverApplication(String(nom || ''));
+  if (!cible) return { ok: false, out: `Je ne trouve pas « ${nom} » sur ce PC.` };
+  const erreur = await shell.openPath(cible);
+  return erreur ? { ok: false, out: `Impossible d'ouvrir « ${nom} » : ${erreur}` } : { ok: true, out: `J'ouvre ${nom}.` };
 });
 
 // ---------- Actions sur le PC (validées par l'utilisateur côté renderer) ----------
