@@ -1245,8 +1245,12 @@ function buildSdxlWorkflow({ prompt, negative, width, height, steps, referenceNa
     '5': {
       class_type: 'KSampler',
       inputs: {
-        seed, steps, cfg: 7, sampler_name: 'euler', scheduler: 'normal',
-        denoise: referenceName ? 0.68 : 1, model: ['1', 0], positive: ['2', 0], negative: ['3', 0],
+        seed, steps, cfg: referenceName ? 7.5 : 7,
+        sampler_name: 'dpmpp_2m', scheduler: 'karras',
+        // Denoise plus élevé en img2img : la consigne doit réellement transformer l'image.
+        // La composition de départ reste toutefois disponible dans le latent encodé.
+        denoise: referenceName ? 0.82 : 1,
+        model: ['1', 0], positive: ['2', 0], negative: ['3', 0],
         latent_image: referenceName ? ['9', 0] : ['4', 0],
       },
     },
@@ -1290,42 +1294,54 @@ async function generateLocalImage(options) {
   }
 
   let referenceName = null;
-  const referenceImages = Array.isArray(options?.referenceImages) ? options.referenceImages.slice(0, 4) : [];
-  if (referenceImages.length) {
+  let referenceWidth = width;
+  let referenceHeight = height;
+  const referenceImages = Array.isArray(options?.referenceImages) ? options.referenceImages : [];
+  if (referenceImages.length > 1) {
+    throw new Error('Pour modifier une image correctement, ajoute une seule référence principale à la fois.');
+  }
+  if (referenceImages.length === 1) {
     const sharp = require('sharp');
-    const decoded = referenceImages.map((dataUrl) => {
-      const match = String(dataUrl).match(/^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$/);
-      if (!match) throw new Error('Une image de référence est invalide.');
-      const buffer = Buffer.from(match[2], 'base64');
-      if (buffer.length > 8 * 1024 * 1024) throw new Error('Une image de référence dépasse 8 Mo.');
-      return buffer;
-    });
+    const match = String(referenceImages[0]).match(/^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$/);
+    if (!match) throw new Error('Une image de référence est invalide.');
+    const referenceBufferInput = Buffer.from(match[2], 'base64');
+    if (referenceBufferInput.length > 8 * 1024 * 1024) throw new Error('Une image de référence dépasse 8 Mo.');
+
+    // Conserver le ratio original. L'ancien redimensionnement forcé en 1024x1024
+    // ajoutait des bandes grises et déformait les références portrait/paysage.
+    const metadata = await sharp(referenceBufferInput).metadata();
+    let sourceWidth = Number(metadata.width) || 1024;
+    let sourceHeight = Number(metadata.height) || 1024;
+    if (metadata.orientation >= 5 && metadata.orientation <= 8) {
+      [sourceWidth, sourceHeight] = [sourceHeight, sourceWidth];
+    }
+    const scale = Math.min(1, 1536 / sourceWidth, 1536 / sourceHeight, Math.sqrt(1500000 / (sourceWidth * sourceHeight)));
+    referenceWidth = Math.max(512, Math.round((sourceWidth * scale) / 8) * 8);
+    referenceHeight = Math.max(512, Math.round((sourceHeight * scale) / 8) * 8);
+    while (referenceWidth * referenceHeight > 1500000) {
+      if (referenceWidth >= referenceHeight) referenceWidth -= 8;
+      else referenceHeight -= 8;
+    }
+
     const comfy = findComfyInstallation();
     const inputDirectory = path.join(path.dirname(comfy.main), 'input');
     fs.mkdirSync(inputDirectory, { recursive: true });
     referenceName = 'overlayia-reference-' + crypto.randomUUID() + '.png';
-    let referenceBuffer;
-    if (decoded.length === 1) {
-      referenceBuffer = await sharp(decoded[0]).rotate()
-        .resize(1024, 1024, { fit: 'contain', background: '#777777' }).png().toBuffer();
-    } else {
-      const tiles = await Promise.all(decoded.map(async (buffer, index) => ({
-        input: await sharp(buffer).rotate().resize(512, 512, { fit: 'contain', background: '#777777' }).png().toBuffer(),
-        left: (index % 2) * 512,
-        top: Math.floor(index / 2) * 512,
-      })));
-      referenceBuffer = await sharp({ create: { width: 1024, height: 1024, channels: 3, background: '#777777' } })
-        .composite(tiles).png().toBuffer();
-    }
-    await fs.promises.writeFile(path.join(inputDirectory, referenceName), referenceBuffer);
+    const preparedReference = await sharp(referenceBufferInput).rotate()
+      .resize(referenceWidth, referenceHeight, { fit: 'fill', kernel: 'lanczos3' })
+      .png().toBuffer();
+    await fs.promises.writeFile(path.join(inputDirectory, referenceName), preparedReference);
   }
+  const workflowPrompt = referenceName
+    ? 'Edit the provided reference image according to the user instruction. Make the requested changes clearly visible and substantial. Preserve the original subject, framing, camera angle, and all details that the user did not ask to change. Do not simply recreate the same image. User instruction: ' + prompt
+    : prompt;
 
-  imageReport(referenceName ? 'Analyse de l’image de référence et génération guidée…' : 'Envoi du prompt à Stable Diffusion XL…');
+  imageReport(referenceName ? 'Modification de l’image de référence…' : 'Envoi du prompt à Stable Diffusion XL…');
   const submitted = await comfyRequest('/prompt', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      prompt: buildSdxlWorkflow({ prompt, negative, width, height, steps, referenceName }),
+      prompt: buildSdxlWorkflow({ prompt: workflowPrompt, negative, width: referenceName ? referenceWidth : width, height: referenceName ? referenceHeight : height, steps: referenceName ? Math.max(30, steps) : steps, referenceName }),
       client_id: 'overlayia-' + process.pid,
     }),
   });
