@@ -635,3 +635,25 @@ input::placeholder { color: rgba(30, 30, 36, 0.78); font-weight: 500; }
 .reference-thumb { width:30px; height:30px; border-radius:8px; }
 .reference-thumb button { display:block; }
 .card.image-mode .footer { margin-top:5px; }
+
+
+/* Icônes des actions sous les images générées */
+.generated-actions .generated-action-btn {
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:6px;
+  min-height:29px;
+  padding:5px 10px;
+}
+.generated-actions .generated-action-btn svg {
+  width:13px;
+  height:13px;
+  flex:none;
+  fill:none;
+  stroke:currentColor;
+  stroke-width:1.8;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+}
+.generated-actions .generated-action-btn span { white-space:nowrap; }
