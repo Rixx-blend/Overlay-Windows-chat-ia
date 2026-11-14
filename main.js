@@ -5,6 +5,7 @@ const os = require('os');
 const path = require('path');
 const { execFile, spawn, spawnSync } = require('child_process');
 const { autoUpdater } = require('electron-updater');
+const { createComputerUse } = require('./computer-use');
 
 // Surveillance globale du clavier et de la souris (Win+Maj+S, Impr écran)
 let uIOhook = null;
@@ -60,6 +61,7 @@ const DEFAULTS = {
 };
 
 let win = null;
+const computerUse = createComputerUse({ desktopCapturer, screen, execFile, clipboard, getWindow: () => win });
 let liveGlass = true; // true : verre live, overlay masqué des captures ; false : fond figé, overlay visible
 let settings = { ...DEFAULTS };
 let firstRun = false;
@@ -741,6 +743,16 @@ ipcMain.handle('run-command', (_e, command) => new Promise((resolve) => {
   );
 }));
 
+// ---------- Agent visuel Computer Use ----------
+ipcMain.handle('computer-use-start', async (_e, task) => {
+  if (!settings.allowActions) return { ok: false, error: 'Active d’abord les actions sur le PC dans les paramètres.' };
+  if (!String(task || '').trim()) return { ok: false, error: 'Décris la tâche à effectuer.' };
+  computerUse.start(String(task)).catch((err) => log('Computer Use : ' + err.message));
+  return { ok: true };
+});
+ipcMain.handle('computer-use-stop', () => { computerUse.stop(); return { ok: true }; });
+ipcMain.handle('computer-use-approve', (_e, approved) => { computerUse.approve(approved); return { ok: true }; });
+ipcMain.handle('computer-use-state', () => computerUse.getState());
 // ---------- IPC : paramètres, IA locale, mises à jour ----------
 ipcMain.handle('get-settings', () => settings);
 ipcMain.handle('set-settings', (_e, patch) => {
