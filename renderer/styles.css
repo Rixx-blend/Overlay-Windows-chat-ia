@@ -571,3 +571,5 @@ input::placeholder { color: rgba(30, 30, 36, 0.78); font-weight: 500; }
 .generated-action-btn:hover { background:rgba(255,255,255,.92); transform:translateY(-1px); }
 .generated-action-btn:disabled { opacity:.4; cursor:default; }
 .card.image-mode { border-radius:26px; }
+
+.card.image-mode .chat { max-height: 165px; }
