@@ -912,7 +912,7 @@ async function startComfyIfAvailable() {
     if (installation.python && installation.main &&
         fs.existsSync(installation.python) && fs.existsSync(installation.main)) {
       const gpuAvailable = hasNvidiaGpu();
-      const args = ['-s', installation.main, '--listen', '127.0.0.1', '--port', '8188'];
+      const args = ['-s', installation.main, '--listen', '127.0.0.1', '--port', '8188', '--disable-auto-launch'];
       if (installation.python.toLowerCase().includes('python_embeded')) args.push('--windows-standalone-build');
       if (!gpuAvailable) args.push('--cpu');
       if (logFd !== null) {
