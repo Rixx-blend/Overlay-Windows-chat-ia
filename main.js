@@ -1214,29 +1214,12 @@ async function getRmbgSession() {
       const ort = require('onnxruntime-node');
       const modelPath = await getRmbgModelPath();
       imageReport('Chargement de rembg (ISNet, premier chargement potentiellement long)…');
-      let session;
-      if (process.platform === 'win32') {
-        try {
-          // DirectML accélère le modèle sur les GPU NVIDIA, AMD et Intel compatibles.
-          session = await ort.InferenceSession.create(modelPath, {
-            executionProviders: ['dml', 'cpu'],
-            graphOptimizationLevel: 'all',
-            executionMode: 'sequential',
-            enableMemPattern: false,
-          });
-        } catch (gpuError) {
-          imageReport('Accélération GPU indisponible, passage sur le processeur…');
-          session = await ort.InferenceSession.create(modelPath, {
-            executionProviders: ['cpu'],
-            graphOptimizationLevel: 'all',
-          });
-        }
-      } else {
-        session = await ort.InferenceSession.create(modelPath, {
-          executionProviders: ['cpu'],
-          graphOptimizationLevel: 'all',
-        });
-      }
+      // CPU uniquement : c'est le chemin vérifié contre rembg. L'accélération DirectML
+      // peut produire des masques faux sans erreur visible, donc elle n'est pas utilisée ici.
+      const session = await ort.InferenceSession.create(modelPath, {
+        executionProviders: ['cpu'],
+        graphOptimizationLevel: 'all',
+      });
       return { ort, session };
     })().catch((error) => {
       rmbgSessionPromise = null;
