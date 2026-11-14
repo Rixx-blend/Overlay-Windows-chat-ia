@@ -32,10 +32,17 @@
       <div class="footer">
         <div class="menu-wrap">
           <button class="pill" id="modelBtn">
-            <span id="modelName">gpt-4o-mini</span>
+            <span id="modelName">qwen2.5vl:3b</span>
             <svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
           </button>
           <div class="menu" id="menu" hidden></div>
+        </div>
+        <div class="menu-wrap">
+          <button class="pill" id="levelBtn" title="Niveau de réflexion">
+            <span id="levelName">Bas</span>
+            <svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <div class="menu" id="levelMenu" hidden></div>
         </div>
         <div class="spacer"></div>
         <button class="ibtn ghost" id="attach" title="Joindre un fichier">
@@ -52,19 +59,6 @@
           <button class="ibtn ghost" id="closePanel" title="Fermer">
             <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>
           </button>
-        </div>
-
-        <h3>Moteur de chat</h3>
-        <div class="seg" id="engineSeg">
-          <button data-v="openai">OpenAI</button>
-          <button data-v="ollama">IA locale</button>
-        </div>
-
-        <h3>Niveau de réflexion</h3>
-        <div class="seg" id="levelSeg">
-          <button data-v="low">Bas</button>
-          <button data-v="high">Haut</button>
-          <button data-v="max">Max</button>
         </div>
 
         <h3>IA locale · qwen2.5vl:3b</h3>

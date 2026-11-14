@@ -2,7 +2,7 @@ const { app, BrowserWindow, globalShortcut, ipcMain, screen, desktopCapturer, se
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execFile } = require('child_process');
+const { execFile, spawn } = require('child_process');
 const { autoUpdater } = require('electron-updater');
 
 // Surveillance globale du clavier et de la souris (Win+Maj+S, Impr écran)
@@ -39,8 +39,8 @@ Tu peux agir sur le PC. Seulement si l'utilisateur le demande, propose UNE comma
 Rien d'autre dans ce bloc. L'utilisateur validera avant toute exécution.`;
 
 const DEFAULTS = {
-  engine: 'openai',
-  model: 'gpt-4o-mini',
+  engine: 'ollama',
+  model: 'qwen2.5vl:3b',
   level: 'low',
   autoUpdate: true,
   allowActions: false,
@@ -190,6 +190,18 @@ const report = (text) => {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const ollamaExe = () => path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Ollama', 'ollama.exe');
 
+// Lance le serveur Ollama en arrière-plan (sans fenêtre)
+function startOllamaServer() {
+  try {
+    const cmd = fs.existsSync(ollamaExe()) ? ollamaExe() : 'ollama';
+    const child = spawn(cmd, ['serve'], { detached: true, stdio: 'ignore', windowsHide: true });
+    child.on('error', () => {});
+    child.unref();
+  } catch {
+    /* ignoré : le statut sera affiché dans les paramètres */
+  }
+}
+
 async function ollamaTags() {
   try {
     const r = await fetch(OLLAMA + '/api/tags', { signal: AbortSignal.timeout(1500) });
@@ -279,6 +291,7 @@ async function installLocalAI() {
       await runInstaller(installer);
     }
     report('Démarrage d’Ollama…');
+    startOllamaServer();
     for (let i = 0; i < 60 && !tags; i++) {
       await sleep(1000);
       tags = await ollamaTags();
@@ -360,7 +373,11 @@ ipcMain.on('chat', async (e, payload) => {
     }
     send('done', null);
   } catch (err) {
-    send('done', err.message);
+    const down = /fetch failed/i.test(err.message) || err.cause?.code === 'ECONNREFUSED';
+    send(
+      'done',
+      down ? "L'IA locale ne répond pas. Ouvrez les paramètres (engrenage) et cliquez sur Installer." : err.message,
+    );
   }
 });
 
@@ -617,15 +634,11 @@ app.whenReady().then(() => {
     setInterval(() => settings.autoUpdate && checkForUpdates(), 6 * 60 * 60 * 1000);
   }
 
-  // Première installation : Ollama et le modèle local, en arrière-plan
-  if (!settings.setupDone) {
-    installLocalAI()
-      .then(() => {
-        settings.setupDone = true;
-        saveSettings();
-      })
-      .catch((err) => report('IA locale : ' + err.message));
-  }
+  // IA locale déjà installée mais arrêtée : on relance son serveur sans rien demander.
+  // L'installation, elle, est proposée dans l'overlay (le renderer demande).
+  ollamaTags().then((t) => {
+    if (!t && fs.existsSync(ollamaExe())) startOllamaServer();
+  });
 });
 
 app.on('window-all-closed', () => app.quit());

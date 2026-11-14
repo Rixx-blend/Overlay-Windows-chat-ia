@@ -16,14 +16,20 @@ const menu = $('menu');
 const settingsBtn = $('settingsBtn');
 const closePanel = $('closePanel');
 
-const MODELS = { openai: ['gpt-4o-mini', 'gpt-4o'], ollama: ['qwen2.5vl:3b'] };
+// Seule IA utilisée : la locale (Ollama). Pas de clé API nécessaire pour le chat.
+const MODELS = { ollama: ['qwen2.5vl:3b'] };
+const LEVEL_LABELS = { low: 'Bas', high: 'Haut', max: 'Max' };
+const levelBtn = $('levelBtn');
+const levelName = $('levelName');
+const levelMenu = $('levelMenu');
+let setupLine = null; // ligne de progression de l'installation proposée dans le chat
 const PLACEHOLDER = "Demander n'importe quoi...";
 const MAX_IMAGE = 8 * 1024 * 1024;
 const MAX_TEXT = 200 * 1024;
 const TEXT_EXT = /\.(txt|md|csv|tsv|json|js|jsx|ts|tsx|py|html|css|xml|ya?ml|ini|log|bat|ps1|cfg|java|c|cpp|h|cs|go|rs|sql)$/i;
 const ACTION_RE = /```action\s*([\s\S]*?)```/;
 
-let settings = { engine: 'openai', model: 'gpt-4o-mini', level: 'low', autoUpdate: true, allowActions: false };
+let settings = { engine: 'ollama', model: 'qwen2.5vl:3b', level: 'low', autoUpdate: true, allowActions: false };
 let messages = [];
 let pending = [];
 let current = null; // bulle de réponse en cours
@@ -56,6 +62,8 @@ function canClose() {
     !busy &&
     !hovering &&
     menu.hidden &&
+    levelMenu.hidden &&
+    !document.querySelector('.setup') &&
     !card.classList.contains('settings') &&
     document.activeElement !== input
   );
@@ -87,8 +95,9 @@ document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if (card.classList.contains('settings')) {
     closeSettings();
-  } else if (!menu.hidden) {
+  } else if (!menu.hidden || !levelMenu.hidden) {
     menu.hidden = true;
+    levelMenu.hidden = true;
   } else {
     input.blur();
     if (!messages.length) setOpen(false);
@@ -415,6 +424,7 @@ function renderMenu() {
 
 modelBtn.addEventListener('click', (e) => {
   e.stopPropagation();
+  levelMenu.hidden = true;
   menu.hidden = !menu.hidden;
   if (!menu.hidden) {
     renderMenu();
@@ -424,11 +434,39 @@ modelBtn.addEventListener('click', (e) => {
   }
 });
 
-// ---------- Paramètres ----------
-function markSeg(seg, value) {
-  seg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.v === value));
+// ---------- Niveau de réflexion (à côté du modèle) ----------
+function renderLevel() {
+  levelName.textContent = LEVEL_LABELS[settings.level] || 'Bas';
+  levelMenu.replaceChildren();
+  for (const [value, label] of Object.entries(LEVEL_LABELS)) {
+    const b = document.createElement('button');
+    b.textContent = label;
+    if (value === settings.level) b.className = 'on';
+    b.onclick = (e) => {
+      e.stopPropagation();
+      settings.level = value;
+      bridge.setSettings({ level: value });
+      levelMenu.hidden = true;
+      renderLevel();
+      scheduleClose();
+    };
+    levelMenu.appendChild(b);
+  }
 }
 
+levelBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  menu.hidden = true;
+  levelMenu.hidden = !levelMenu.hidden;
+  if (!levelMenu.hidden) {
+    renderLevel();
+    keepOpen();
+  } else {
+    scheduleClose();
+  }
+});
+
+// ---------- Paramètres ----------
 async function refreshOllama() {
   const el = $('ollamaStatus');
   try {
@@ -444,8 +482,6 @@ async function refreshOllama() {
 }
 
 function fillPanel() {
-  markSeg($('engineSeg'), settings.engine);
-  markSeg($('levelSeg'), settings.level);
   $('autoUpd').checked = !!settings.autoUpdate;
   $('allowAct').checked = !!settings.allowActions;
   refreshOllama();
@@ -465,25 +501,6 @@ function closeSettings() {
 
 settingsBtn.addEventListener('click', openSettings);
 closePanel.addEventListener('click', closeSettings);
-
-$('engineSeg').addEventListener('click', (e) => {
-  const b = e.target.closest('button');
-  if (!b) return;
-  const engine = b.dataset.v;
-  settings.engine = engine;
-  if (!MODELS[engine].includes(settings.model)) settings.model = MODELS[engine][0];
-  bridge.setSettings({ engine, model: settings.model });
-  markSeg($('engineSeg'), engine);
-  renderMenu();
-});
-
-$('levelSeg').addEventListener('click', (e) => {
-  const b = e.target.closest('button');
-  if (!b) return;
-  settings.level = b.dataset.v;
-  bridge.setSettings({ level: settings.level });
-  markSeg($('levelSeg'), settings.level);
-});
 
 $('autoUpd').addEventListener('change', (e) => {
   settings.autoUpdate = e.target.checked;
@@ -510,8 +527,54 @@ $('installAI').addEventListener('click', async () => {
 
 bridge.onOllamaProgress((t) => {
   $('ollamaProg').textContent = t;
-  if (/prête/i.test(t)) refreshOllama();
+  if (setupLine) setupLine.textContent = t;
+  if (/prête/i.test(t)) {
+    refreshOllama();
+    const box = document.querySelector('.setup');
+    if (box) setTimeout(() => box.remove(), 1500);
+  }
 });
+
+// Proposition d'installation dans le chat, affichée tant que le modèle n'est pas prêt
+function showSetupPrompt() {
+  const box = document.createElement('div');
+  box.className = 'action setup';
+  const label = document.createElement('div');
+  label.textContent = "L'IA locale (Ollama + qwen2.5vl:3b) n'est pas installée. Voulez-vous l'installer maintenant ?";
+  const prog = document.createElement('div');
+  prog.className = 'prog';
+  const row = document.createElement('div');
+  row.className = 'act-row';
+  const later = document.createElement('button');
+  later.className = 'btn';
+  later.textContent = 'Plus tard';
+  const go = document.createElement('button');
+  go.className = 'btn dark';
+  go.textContent = 'Installer';
+  row.append(later, go);
+  box.append(label, prog, row);
+  chat.appendChild(box);
+  chat.classList.add('has');
+  setupLine = prog;
+  keepOpen();
+
+  later.onclick = () => {
+    box.remove();
+    setupLine = null;
+    scheduleClose();
+  };
+  go.onclick = async () => {
+    go.disabled = later.disabled = true;
+    prog.textContent = 'Démarrage…';
+    try {
+      prog.textContent = await bridge.installLocalAI();
+    } catch (err) {
+      prog.textContent = 'Erreur : ' + err.message;
+      go.disabled = later.disabled = false;
+    }
+    refreshOllama();
+  };
+}
 
 // ---------- Mises à jour ----------
 $('checkUpd').addEventListener('click', async () => {
@@ -551,8 +614,19 @@ bridge.onFocus(() => {
   } catch {
     /* valeurs par défaut */
   }
-  if (!MODELS[settings.engine]) settings.engine = 'openai';
-  if (!MODELS[settings.engine].includes(settings.model)) settings.model = MODELS[settings.engine][0];
+  // Toujours l'IA locale : d'anciens réglages OpenAI sont ignorés
+  settings.engine = 'ollama';
+  settings.model = 'qwen2.5vl:3b';
+  if (!LEVEL_LABELS[settings.level]) settings.level = 'low';
   input.placeholder = PLACEHOLDER;
   renderMenu();
+  renderLevel();
+
+  // IA locale déjà installée : rien à faire. Sinon, on propose l'installation.
+  try {
+    const s = await bridge.ollamaStatus();
+    if (!s.hasModel) showSetupPrompt();
+  } catch {
+    showSetupPrompt();
+  }
 })();
