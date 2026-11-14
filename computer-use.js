@@ -45,6 +45,7 @@ function createComputerUse({ getWindow }) {
     const candidates = [];
     if (process.env.OVERLAYIA_PYTHON) candidates.push([process.env.OVERLAYIA_PYTHON, []]);
     const home = process.env.USERPROFILE || '';
+    candidates.push(['py', ['-3']], ['python', []], ['python3', []]);
     for (const candidate of [
       path.join(home, 'ComfyUI_windows_portable', 'python_embeded', 'python.exe'),
       path.join(home, 'Downloads', 'ComfyUI_windows_portable', 'python_embeded', 'python.exe'),
@@ -52,7 +53,6 @@ function createComputerUse({ getWindow }) {
     ]) {
       if (candidate && fs.existsSync(candidate)) candidates.push([candidate, []]);
     }
-    candidates.push(['py', ['-3']], ['python', []], ['python3', []]);
     for (const [command, args] of candidates) {
       const result = testPython(command, args);
       if (result) return result;
@@ -83,9 +83,15 @@ function createComputerUse({ getWindow }) {
     } catch {
       await runProcess(python.command, [...python.prefixArgs, '-m', 'ensurepip', '--upgrade'], { cwd: path.dirname(requirements), stdio: ['ignore', 'pipe', 'pipe'] });
     }
-    await runProcess(python.command, [...python.prefixArgs, '-m', 'pip', 'install', '--user', '--disable-pip-version-check', '-r', requirements], {
-      cwd: path.dirname(requirements), stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    try {
+      await runProcess(python.command, [...python.prefixArgs, '-m', 'pip', 'install', '--user', '--disable-pip-version-check', '-r', requirements], {
+        cwd: path.dirname(requirements), stdio: ['ignore', 'pipe', 'pipe'],
+      });
+    } catch (firstError) {
+      await runProcess(python.command, [...python.prefixArgs, '-m', 'pip', 'install', '--disable-pip-version-check', '-r', requirements], {
+        cwd: path.dirname(requirements), stdio: ['ignore', 'pipe', 'pipe'],
+      });
+    }
   }
 
   function handleLine(line, id) {
@@ -107,7 +113,7 @@ function createComputerUse({ getWindow }) {
     }
     if (message.event === 'confirmation_required') {
       const win = getWindow && getWindow();
-      dialog.showMessageBox(win && !win.isDestroyed() ? win : undefined, {
+      const options = {
         type: 'warning',
         title: 'Computer Use — confirmation requise',
         message: 'L’IA demande une confirmation avant de continuer.',
@@ -116,7 +122,8 @@ function createComputerUse({ getWindow }) {
         defaultId: 0,
         cancelId: 0,
         noLink: true,
-      }).then((result) => {
+      };
+      (win && !win.isDestroyed() ? dialog.showMessageBox(win, options) : dialog.showMessageBox(options)).then((result) => {
         if (child && id === runId && child.stdin.writable) {
           child.stdin.write(JSON.stringify({ type: 'approval', approved: result.response === 1 }) + '\n');
         }
