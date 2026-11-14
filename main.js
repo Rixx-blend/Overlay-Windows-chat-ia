@@ -1,4 +1,5 @@
-const { app, BrowserWindow, globalShortcut, ipcMain, screen, desktopCapturer, session } = require('electron');
+const { app, BrowserWindow, globalShortcut, ipcMain, screen, desktopCapturer, session, shell } = require('electron');
+const fs = require('fs');
 const path = require('path');
 
 const API_URL = 'https://api.openai.com/v1/chat/completions';
@@ -8,7 +9,7 @@ const WIN_W = 620;
 const WIN_H = 580;
 
 let win = null;
-let liveGlass = false; // false : overlay visible dans les captures (fond figé) ; true : verre live, masqué des captures
+let liveGlass = true; // true : verre live, fond exact du bureau, overlay masqué des captures ; false : fond figé, overlay visible
 
 function displayOf() {
   return screen.getDisplayMatching(win.getBounds());
@@ -52,7 +53,7 @@ function createWindow() {
 
   win.setAlwaysOnTop(true, 'screen-saver');
   // Exclut la fenêtre de la capture : sinon le verre se capturerait lui-même
-  win.setContentProtection(false); // visible dans les captures par défaut
+  win.setContentProtection(liveGlass);
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   win.setIgnoreMouseEvents(true, { forward: true });
 
@@ -165,6 +166,7 @@ app.whenReady().then(() => {
   globalShortcut.register('Control+Alt+Space', toggleOverlay);
   globalShortcut.register('Control+Alt+B', () => win && win.webContents.send('snapshot'));
   globalShortcut.register('Control+Alt+L', toggleLive);
+  globalShortcut.register('Control+Alt+P', takeScreenshot);
 });
 
 app.on('window-all-closed', () => app.quit());
@@ -205,3 +207,31 @@ ipcMain.handle('protect', (_e, on) => {
   if (win && !win.isDestroyed()) win.setContentProtection(!!on);
   return true;
 });
+
+// Capture d'écran du bureau AVEC l'overlay visible, enregistrée dans Images puis ouverte
+async function takeScreenshot() {
+  if (!win || win.isDestroyed()) return;
+  const wasLive = liveGlass;
+  if (wasLive) {
+    win.setContentProtection(false);
+    await new Promise((r) => setTimeout(r, 150));
+  }
+  try {
+    const d = screen.getDisplayMatching(win.getBounds());
+    const sources = await desktopCapturer.getSources({
+      types: ['screen'],
+      thumbnailSize: {
+        width: Math.round(d.size.width * d.scaleFactor),
+        height: Math.round(d.size.height * d.scaleFactor),
+      },
+    });
+    const src = sources.find((x) => x.display_id === String(d.id)) || sources[0];
+    if (src) {
+      const file = path.join(app.getPath('pictures'), 'OverlayIA-' + Date.now() + '.png');
+      fs.writeFileSync(file, src.thumbnail.toPNG());
+      shell.openPath(file);
+    }
+  } finally {
+    if (wasLive && !win.isDestroyed()) win.setContentProtection(true);
+  }
+}

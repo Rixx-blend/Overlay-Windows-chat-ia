@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src data: blob:" />
   <title>OverlayIA</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -15,6 +15,8 @@
   <div class="stage">
     <main class="card" id="card">
       <div class="chat" id="chat"></div>
+
+      <div class="tray" id="tray" hidden></div>
 
       <div class="row">
         <input id="input" type="text" placeholder="Demander n'importe quoi..." autocomplete="off" spellcheck="false" />
@@ -38,10 +40,15 @@
           </div>
         </div>
         <span class="spacer"></span>
+        <button class="ibtn ghost" id="attach" title="Joindre des fichiers">
+          <svg viewBox="0 0 24 24"><path d="m21.4 11.1-8.5 8.5a5.5 5.5 0 0 1-7.8-7.8l8.5-8.5a3.7 3.7 0 0 1 5.2 5.2l-8.5 8.5a1.8 1.8 0 0 1-2.6-2.6l7.8-7.8"/></svg>
+        </button>
         <button class="ibtn ghost" id="newchat" title="Nouvelle conversation">
           <svg viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
         </button>
       </div>
+
+      <input type="file" id="file" multiple hidden />
     </main>
   </div>
 

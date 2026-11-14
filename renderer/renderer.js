@@ -4,19 +4,26 @@ const input = document.getElementById('input');
 const send = document.getElementById('send');
 const mic = document.getElementById('mic');
 const newchat = document.getElementById('newchat');
+const attach = document.getElementById('attach');
+const fileInput = document.getElementById('file');
+const tray = document.getElementById('tray');
 const modelBtn = document.getElementById('modelBtn');
 const modelName = document.getElementById('modelName');
 const menu = document.getElementById('menu');
 
 const PLACEHOLDER = "Demander n'importe quoi...";
+const MAX_IMAGE = 8 * 1024 * 1024;
+const MAX_TEXT = 200 * 1024;
+const TEXT_EXT = /\.(txt|md|json|csv|js|ts|jsx|tsx|py|html|css|xml|log|yml|yaml|ini|sql|java|c|cpp|cs|rs|go)$/i;
 
 let messages = [];      // historique envoyé à l'API
 let current = null;     // bulle de réponse en cours
-let busy = false;       // une réponse est en cours
+let busy = false;
 let model = 'gpt-4o-mini';
-let recorder = null;    // enregistrement vocal en cours
+let recorder = null;
 let transcribing = false;
 let closeTimer = null;
+let pending = [];       // pièces jointes en attente d'envoi
 
 // ---------- Ouverture / fermeture ----------
 function setOpen(v) {
@@ -24,7 +31,7 @@ function setOpen(v) {
 }
 
 function canClose() {
-  return !messages.length && !input.value && !recorder && !transcribing
+  return !messages.length && !input.value && !pending.length && !recorder && !transcribing
     && !card.matches(':hover') && menu.hidden;
 }
 
@@ -45,6 +52,97 @@ card.addEventListener('pointerleave', () => {
   if (!dragging) scheduleClose();
 });
 
+// ---------- Pièces jointes ----------
+function readAsDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+
+async function readAttachment(f) {
+  const base = { name: f.name, size: f.size };
+  if (f.type.startsWith('image/') && f.size <= MAX_IMAGE) {
+    return { ...base, kind: 'image', url: await readAsDataURL(f) };
+  }
+  const isText = f.type.startsWith('text/') || f.type === 'application/json' || TEXT_EXT.test(f.name);
+  if (isText && f.size <= MAX_TEXT) {
+    return { ...base, kind: 'text', text: await f.text() };
+  }
+  return { ...base, kind: 'file' };
+}
+
+function formatSize(n) {
+  if (n < 1024) return n + ' o';
+  if (n < 1024 * 1024) return Math.round(n / 1024) + ' Ko';
+  return (n / (1024 * 1024)).toFixed(1) + ' Mo';
+}
+
+function renderTray() {
+  tray.innerHTML = '';
+  tray.hidden = !pending.length;
+  pending.forEach((a, i) => {
+    const el = document.createElement('div');
+    el.className = `chip ${a.kind}`;
+    el.title = `${a.name} · ${formatSize(a.size)}`;
+
+    if (a.kind === 'image') {
+      const img = document.createElement('img');
+      img.src = a.url;
+      img.alt = '';
+      el.appendChild(img);
+    } else if (a.kind === 'text') {
+      const snip = document.createElement('div');
+      snip.className = 'snip';
+      snip.textContent = a.text.slice(0, 160);
+      el.appendChild(snip);
+    } else {
+      const ext = document.createElement('div');
+      ext.className = 'fico';
+      ext.textContent = (a.name.split('.').pop() || 'FILE').slice(0, 4).toUpperCase();
+      el.appendChild(ext);
+    }
+
+    const name = document.createElement('span');
+    name.className = 'cname';
+    name.textContent = a.name;
+    el.appendChild(name);
+
+    const x = document.createElement('button');
+    x.className = 'x';
+    x.textContent = '×';
+    x.title = 'Retirer';
+    x.addEventListener('click', (e) => {
+      e.stopPropagation();
+      pending.splice(i, 1);
+      renderTray();
+    });
+    el.appendChild(x);
+
+    tray.appendChild(el);
+  });
+}
+
+attach.addEventListener('click', () => {
+  setOpen(true);
+  fileInput.click();
+});
+
+fileInput.addEventListener('change', async () => {
+  for (const f of fileInput.files) {
+    try {
+      pending.push(await readAttachment(f));
+    } catch (err) {
+      console.error('lecture impossible :', f.name, err);
+    }
+  }
+  fileInput.value = '';
+  renderTray();
+  input.focus();
+});
+
 // ---------- Messages ----------
 function addMsg(role, text) {
   const d = document.createElement('div');
@@ -56,14 +154,45 @@ function addMsg(role, text) {
   return d;
 }
 
+// Construit le contenu envoyé : texte, fichiers texte inclus, images en pièces jointes
+function buildContent(text) {
+  let body = text;
+  for (const a of pending.filter((x) => x.kind === 'text')) {
+    body = `Fichier « ${a.name} » :\n\`\`\`\n${a.text.slice(0, 20000)}\n\`\`\`\n\n` + body;
+  }
+  const files = pending.filter((x) => x.kind === 'file');
+  if (files.length) {
+    body = `[Fichiers joints non lisibles directement : ${files.map((f) => f.name).join(', ')}]\n` + body;
+  }
+  const images = pending.filter((x) => x.kind === 'image');
+  if (!images.length) return body;
+  return [
+    { type: 'text', text: body || 'Décris ces images.' },
+    ...images.map((i) => ({ type: 'image_url', image_url: { url: i.url } })),
+  ];
+}
+
 function submit() {
   const text = input.value.trim();
-  if (!text || busy) return;
+  if ((!text && !pending.length) || busy) return;
+
+  const names = pending.map((a) => a.name);
+  const content = buildContent(text);
   input.value = '';
   busy = true;
   setOpen(true);
-  addMsg('user', text);
-  messages.push({ role: 'user', content: text });
+
+  const bubble = addMsg('user', text || 'Pièces jointes');
+  if (names.length) {
+    const att = document.createElement('div');
+    att.className = 'att';
+    att.textContent = 'Pièces jointes : ' + names.join(', ');
+    bubble.appendChild(att);
+  }
+  pending = [];
+  renderTray();
+
+  messages.push({ role: 'user', content });
   current = addMsg('ai', '');
   window.api.chat(messages, model);
 }
@@ -71,6 +200,8 @@ function submit() {
 function newConversation() {
   if (busy) return;
   messages = [];
+  pending = [];
+  renderTray();
   chat.innerHTML = '';
   chat.classList.remove('has');
   input.focus();
@@ -129,7 +260,6 @@ menu.querySelectorAll('button').forEach((b) => {
   });
 });
 
-// Un clic ailleurs ferme le menu
 document.addEventListener('pointerdown', (e) => {
   if (!menu.hidden && !e.target.closest('.menu-wrap')) menu.hidden = true;
 });
@@ -145,7 +275,6 @@ function flash(text) {
 async function toggleMic() {
   if (transcribing) return;
 
-  // Deuxième clic : on arrête l'enregistrement
   if (recorder) {
     recorder.stop();
     return;
@@ -194,13 +323,13 @@ async function toggleMic() {
 
 mic.addEventListener('click', toggleMic);
 
-// ---------- Déplacement : glisser sur la carte (sauf texte, boutons et historique) ----------
+// ---------- Déplacement : glisser sur la carte (sauf texte, boutons, historique, pièces jointes) ----------
 let dragging = false;
 let dragQueued = false;
 
 card.addEventListener('pointerdown', (e) => {
   if (e.button !== 0) return;
-  if (e.target.closest('input, button, .menu, .chat')) return;
+  if (e.target.closest('input, button, .menu, .chat, .tray')) return;
   dragging = true;
   window.api.mouseIn();
   window.api.dragStart();
@@ -222,7 +351,6 @@ window.addEventListener('pointerup', () => {
   if (!card.matches(':hover')) window.api.mouseOut();
 });
 
-// La fenêtre laisse passer les clics hors de la carte (sauf pendant un glissement)
 card.addEventListener('pointerenter', () => window.api.mouseIn());
 card.addEventListener('pointerleave', () => {
   if (!dragging) window.api.mouseOut();
