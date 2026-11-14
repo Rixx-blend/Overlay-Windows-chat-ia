@@ -159,8 +159,31 @@ function toggleOverlay() {
 app.whenReady().then(() => {
   createWindow();
   setupCapture();
+  setupPermissions();
   globalShortcut.register('Control+Alt+Space', toggleOverlay);
 });
 
 app.on('window-all-closed', () => app.quit());
 app.on('will-quit', () => globalShortcut.unregisterAll());
+
+// Autorise le micro (et le partage d'écran) pour cette application uniquement
+function setupPermissions() {
+  session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => {
+    cb(['media', 'display-capture'].includes(permission));
+  });
+}
+
+// Transcription vocale (Whisper) : l'audio part du processus principal, la clé reste côté serveur
+ipcMain.handle('transcribe', async (_e, buf) => {
+  const form = new FormData();
+  form.append('file', new Blob([buf], { type: 'audio/webm' }), 'audio.webm');
+  form.append('model', 'whisper-1');
+  form.append('language', 'fr');
+  const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY || ''}` },
+    body: form,
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return (await res.json()).text || '';
+});

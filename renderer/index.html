@@ -9,26 +9,42 @@
 <body>
   <!-- Flux de l'écran (source de la texture du verre) -->
   <video id="bg" muted playsinline></video>
-  <!-- Verre liquide : shader WebGL qui déforme le bureau derrière la fenêtre -->
+  <!-- Verre liquide : shader WebGL -->
   <canvas id="glass"></canvas>
+
   <div class="stage">
     <main class="card" id="card">
       <div class="chat" id="chat"></div>
+
       <div class="row">
         <input id="input" type="text" placeholder="Demander n'importe quoi..." autocomplete="off" spellcheck="false" />
-        <button class="orb" id="mic" title="Dictée vocale (bientôt)">🎙</button>
+        <button class="ibtn" id="mic" title="Message vocal">
+          <svg viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><path d="M12 17v4"/><path d="M8 21h8"/></svg>
+        </button>
+        <button class="ibtn primary" id="send" title="Envoyer">
+          <svg viewBox="0 0 24 24"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>
+        </button>
       </div>
+
       <div class="footer">
-        <select id="model">
-          <option value="gpt-4o-mini">gpt-4o-mini</option>
-          <option value="gpt-4o">gpt-4o</option>
-        </select>
+        <div class="menu-wrap">
+          <button class="pill" id="modelBtn" title="Modèle">
+            <span id="modelName">gpt-4o-mini</span>
+            <svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <div class="menu" id="menu" hidden>
+            <button data-m="gpt-4o-mini">gpt-4o-mini</button>
+            <button data-m="gpt-4o">gpt-4o</button>
+          </div>
+        </div>
         <span class="spacer"></span>
-        <button class="plus" title="Ajouter">+</button>
-        <button class="orb" id="send" title="Envoyer">➤</button>
+        <button class="ibtn ghost" id="newchat" title="Nouvelle conversation">
+          <svg viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+        </button>
       </div>
     </main>
   </div>
+
   <script src="glass.js"></script>
   <script src="renderer.js"></script>
 </body>

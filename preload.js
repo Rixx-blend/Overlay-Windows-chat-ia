@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
   chat: (messages, model) => ipcRenderer.send('chat', { messages, model }),
+  transcribe: (buf) => ipcRenderer.invoke('transcribe', buf),
   mouseIn: () => ipcRenderer.send('mouse-in'),
   mouseOut: () => ipcRenderer.send('mouse-out'),
   hide: () => ipcRenderer.send('hide'),

@@ -2,17 +2,50 @@ const card = document.getElementById('card');
 const chat = document.getElementById('chat');
 const input = document.getElementById('input');
 const send = document.getElementById('send');
-const model = document.getElementById('model');
+const mic = document.getElementById('mic');
+const newchat = document.getElementById('newchat');
+const modelBtn = document.getElementById('modelBtn');
+const modelName = document.getElementById('modelName');
+const menu = document.getElementById('menu');
 
-let messages = [];   // historique envoyé à l'API
-let current = null;  // bulle de réponse en cours
-let busy = false;
-let blurTimer = null;
+const PLACEHOLDER = "Demander n'importe quoi...";
 
+let messages = [];      // historique envoyé à l'API
+let current = null;     // bulle de réponse en cours
+let busy = false;       // une réponse est en cours
+let model = 'gpt-4o-mini';
+let recorder = null;    // enregistrement vocal en cours
+let transcribing = false;
+let closeTimer = null;
+
+// ---------- Ouverture / fermeture ----------
 function setOpen(v) {
   card.classList.toggle('open', v);
 }
 
+function canClose() {
+  return !messages.length && !input.value && !recorder && !transcribing
+    && !card.matches(':hover') && menu.hidden;
+}
+
+function scheduleClose() {
+  clearTimeout(closeTimer);
+  closeTimer = setTimeout(() => {
+    if (canClose()) setOpen(false);
+  }, 300);
+}
+
+input.addEventListener('focus', () => {
+  clearTimeout(closeTimer);
+  setOpen(true);
+});
+input.addEventListener('blur', scheduleClose);
+card.addEventListener('pointerenter', () => clearTimeout(closeTimer));
+card.addEventListener('pointerleave', () => {
+  if (!dragging) scheduleClose();
+});
+
+// ---------- Messages ----------
 function addMsg(role, text) {
   const d = document.createElement('div');
   d.className = `msg ${role}`;
@@ -32,25 +65,27 @@ function submit() {
   addMsg('user', text);
   messages.push({ role: 'user', content: text });
   current = addMsg('ai', '');
-  window.api.chat(messages, model.value);
+  window.api.chat(messages, model);
 }
 
-// Ouverture au focus ; fermeture quand on quitte sans rien avoir écrit ni échangé
-input.addEventListener('focus', () => {
-  clearTimeout(blurTimer);
-  setOpen(true);
-});
-input.addEventListener('blur', () => {
-  blurTimer = setTimeout(() => {
-    if (!messages.length && !input.value) setOpen(false);
-  }, 250);
-});
+function newConversation() {
+  if (busy) return;
+  messages = [];
+  chat.innerHTML = '';
+  chat.classList.remove('has');
+  input.focus();
+}
+
+send.addEventListener('click', submit);
+newchat.addEventListener('click', newConversation);
 
 input.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') submit();
-  if (e.key === 'Escape') window.api.hide();
+  if (e.key === 'Escape') {
+    if (!menu.hidden) menu.hidden = true;
+    else window.api.hide();
+  }
 });
-send.addEventListener('click', submit);
 
 window.api.onToken((t) => {
   if (!current) return;
@@ -73,13 +108,99 @@ window.api.onDone((err) => {
 
 window.api.onFocus(() => input.focus());
 
-// ---------- Déplacement : glisser n'importe où sur la carte (sauf texte et boutons) ----------
+// ---------- Modèle ----------
+function markModel() {
+  menu.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.m === model));
+  modelName.textContent = model;
+}
+
+modelBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  menu.hidden = !menu.hidden;
+});
+
+menu.querySelectorAll('button').forEach((b) => {
+  b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    model = b.dataset.m;
+    markModel();
+    menu.hidden = true;
+    input.focus();
+  });
+});
+
+// Un clic ailleurs ferme le menu
+document.addEventListener('pointerdown', (e) => {
+  if (!menu.hidden && !e.target.closest('.menu-wrap')) menu.hidden = true;
+});
+
+markModel();
+
+// ---------- Message vocal ----------
+function flash(text) {
+  input.placeholder = text;
+  setTimeout(() => (input.placeholder = PLACEHOLDER), 2500);
+}
+
+async function toggleMic() {
+  if (transcribing) return;
+
+  // Deuxième clic : on arrête l'enregistrement
+  if (recorder) {
+    recorder.stop();
+    return;
+  }
+
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (err) {
+    flash('Micro indisponible');
+    return;
+  }
+
+  const chunks = [];
+  const rec = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+  rec.ondataavailable = (e) => {
+    if (e.data.size) chunks.push(e.data);
+  };
+  rec.onstop = async () => {
+    stream.getTracks().forEach((t) => t.stop());
+    recorder = null;
+    mic.classList.remove('rec');
+    transcribing = true;
+    mic.classList.add('busy');
+    try {
+      const buf = await new Blob(chunks, { type: 'audio/webm' }).arrayBuffer();
+      const text = await window.api.transcribe(buf);
+      if (text.trim()) {
+        input.value = (input.value ? input.value + ' ' : '') + text.trim();
+      }
+    } catch (err) {
+      flash('Transcription échouée');
+    } finally {
+      transcribing = false;
+      mic.classList.remove('busy');
+      input.focus();
+    }
+  };
+
+  recorder = rec;
+  rec.start();
+  mic.classList.add('rec');
+  mic.title = 'Arrêter';
+  setOpen(true);
+}
+
+mic.addEventListener('click', toggleMic);
+
+// ---------- Déplacement : glisser sur la carte (sauf texte, boutons et historique) ----------
 let dragging = false;
 let dragQueued = false;
 
 card.addEventListener('pointerdown', (e) => {
   if (e.button !== 0) return;
-  if (e.target.closest('input, button, select, .chat')) return;
+  if (e.target.closest('input, button, .menu, .chat')) return;
   dragging = true;
   window.api.mouseIn();
   window.api.dragStart();
