@@ -806,3 +806,11 @@ details.sources .source-link:hover { opacity: 1; }
 .chat::-webkit-scrollbar-button, .panel::-webkit-scrollbar-button, .reference-previews::-webkit-scrollbar-button {
   display: none;
 }
+
+/* ---------- Computer Use ---------- */
+#computerTask { width:100%; min-height:66px; resize:vertical; box-sizing:border-box; padding:9px 10px; border-radius:12px; border:1px solid rgba(255,255,255,.65); background:rgba(255,255,255,.55); color:#17171a; font:inherit; font-size:12px; outline:none; }
+#computerTask:focus { border-color:rgba(20,20,24,.55); background:rgba(255,255,255,.8); }
+.computer-controls { margin-top:7px; }
+.computer-history { display:flex; flex-direction:column; gap:4px; max-height:130px; overflow:auto; margin-top:8px; padding:7px; border-radius:11px; background:rgba(255,255,255,.25); }
+.computer-history-item { font-size:10.5px; line-height:1.4; opacity:.8; overflow-wrap:anywhere; }
+.computer-history-item:first-child { opacity:1; }
