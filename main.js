@@ -468,6 +468,12 @@ async function searchWeb(query) {
   }));
 }
 
+// Ouvre une page web (https uniquement) dans le navigateur par défaut.
+ipcMain.handle('open-link', (_e, url) => {
+  const value = String(url || '');
+  if (/^https:\/\//.test(value)) shell.openExternal(value);
+});
+
 // Ouvre uniquement la page de création de clé Tavily dans le navigateur.
 ipcMain.handle('open-tavily-keys', () => {
   shell.openExternal('https://app.tavily.com/home');
@@ -485,11 +491,12 @@ ipcMain.on('chat', async (e, payload) => {
   const L = LEVELS[level] || LEVELS.low;
   let sys = `Tu es un assistant installé sur le PC de l'utilisateur, dans un overlay. ${L.hint}
 Tu fonctionnes localement. Ton modèle est Qwen 2.5 VL 3B, développé par Alibaba Cloud, exécuté localement par Ollama. Ne prétends jamais être un autre modèle et n'invente jamais de version.
-Réponds directement à la demande. Évite les répétitions et arrête-toi dès que la réponse est complète.`;
+Réponds directement à la demande. Évite les répétitions et arrête-toi dès que la réponse est complète.
+Mise en forme : utilise **gras** pour l'essentiel, *italique* pour les nuances, ++souligné++ pour les points clés, ==surligné== pour les alertes ou les chiffres importants. Reste sobre : deux ou trois mises en forme au maximum par réponse. Les listes à puces (- ) et numérotées sont bienvenues.`;
   if (allowActions) sys += ACTION_HINT;
-  // Recherche web : les résultats sont donnés au modèle avec des numéros, et la liste
-  // des sources est affichée sous la réponse.
-  let sourcesFooter = '';
+  // Recherche web : les résultats sont donnés au modèle avec des numéros ; la liste
+  // des sources est envoyée à part et affichée repliée sous la réponse.
+  let sourcesList = [];
   if (payload.webSearch) {
     const query = lastUserText(messages);
     if (query) {
@@ -498,7 +505,7 @@ Réponds directement à la demande. Évite les répétitions et arrête-toi dès
         if (results.length) {
           sys += `\n\nRésultats de recherche web à utiliser (cite-les avec [1], [2]… et précise quand une info vient de la recherche) :\n`
             + results.map((r, i) => `[${i + 1}] ${r.title} — ${r.url}\n${r.description}`).join('\n');
-          sourcesFooter = '\n\nSources :\n' + results.map((r, i) => `[${i + 1}] ${r.title} — ${r.url}`).join('\n');
+          sourcesList = results;
         } else {
           sys += '\n\nLa recherche web n\'a donné aucun résultat. Dis-le et réponds prudemment.';
         }
@@ -547,7 +554,7 @@ Réponds directement à la demande. Évite les répétitions et arrête-toi dès
       });
       if (answer) send('token', answer);
     }
-    if (sourcesFooter) send('token', sourcesFooter);
+    if (sourcesList.length) send('sources', sourcesList);
     send('done', null);
   } catch (err) {
     const down = /fetch failed/i.test(err.message) || err.cause?.code === 'ECONNREFUSED';

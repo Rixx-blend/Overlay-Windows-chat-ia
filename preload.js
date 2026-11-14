@@ -43,6 +43,8 @@ contextBridge.exposeInMainWorld('api', {
   // Événements venant du processus principal
   onToken: (cb) => on('token', cb),
   onDone: (cb) => on('done', cb),
+  onSources: (cb) => on('sources', cb),
+  openLink: (url) => ipcRenderer.invoke('open-link', url),
   onFocus: (cb) => on('focus-input', () => cb()),
   onGeometry: (cb) => on('geometry', cb),
   onVisibility: (cb) => on('visibility', cb),

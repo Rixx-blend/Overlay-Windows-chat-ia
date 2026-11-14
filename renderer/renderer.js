@@ -430,6 +430,7 @@ let stopLoader = null;
 function startAI() {
   current = addBubble('ai', '');
   aiText = '';
+  pendingSources = [];
   busy = true;
   send.classList.add('busy');
   const loader = makeLoader('Réflexion');
@@ -444,6 +445,85 @@ function startAI() {
   });
 }
 
+// ---------- Mise en forme des réponses (markdown sûr, sans HTML brut) ----------
+// Le texte est échappé avant transformation : seules nos balises sont injectées.
+function escapeHtml(text) {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function renderInline(text) {
+  let s = escapeHtml(text);
+  s = s.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+  s = s.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+  s = s.replace(/\+\+([^+\n]+)\+\+/g, '<u>$1</u>');
+  s = s.replace(/==([^=\n]+)==/g, '<mark>$1</mark>');
+  s = s.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>');
+  return s;
+}
+
+function renderMarkdown(text) {
+  let html = '';
+  let list = null;
+  const closeList = () => {
+    if (list) html += `</${list}>`;
+    list = null;
+  };
+  for (const raw of text.split('\n')) {
+    const line = raw.trimEnd();
+    const bullet = line.match(/^\s*[-•]\s+(.*)$/);
+    const numbered = line.match(/^\s*\d+[.)]\s+(.*)$/);
+    const heading = line.match(/^#{1,3}\s+(.*)$/);
+    if (bullet) {
+      if (list !== 'ul') { closeList(); html += '<ul>'; list = 'ul'; }
+      html += `<li>${renderInline(bullet[1])}</li>`;
+    } else if (numbered) {
+      if (list !== 'ol') { closeList(); html += '<ol>'; list = 'ol'; }
+      html += `<li>${renderInline(numbered[1])}</li>`;
+    } else {
+      closeList();
+      if (heading) html += `<div class="md-h">${renderInline(heading[1])}</div>`;
+      else if (line.trim()) html += `<p>${renderInline(line)}</p>`;
+    }
+  }
+  closeList();
+  return html;
+}
+
+// Sources repliées sous la réponse : un clic ouvre le détail, un lien ouvre la page.
+function addSourcesBlock(bubble, sources) {
+  if (!sources || !sources.length) return;
+  const details = document.createElement('details');
+  details.className = 'sources';
+  const summary = document.createElement('summary');
+  summary.textContent = `Sources (${sources.length})`;
+  details.appendChild(summary);
+  sources.forEach((s, i) => {
+    const item = document.createElement('div');
+    item.className = 'source-item';
+    const title = document.createElement('div');
+    title.className = 'source-title';
+    title.textContent = `[${i + 1}] ${s.title || s.url}`;
+    const link = document.createElement('a');
+    link.href = '#';
+    link.textContent = s.url.replace(/^https?:\/\//, '').split('/')[0];
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      bridge.openLink(s.url);
+    });
+    const desc = document.createElement('div');
+    desc.className = 'source-desc';
+    desc.textContent = s.description || '';
+    item.append(title, link, desc);
+    details.appendChild(item);
+  });
+  bubble.appendChild(details);
+}
+
+let pendingSources = [];
+bridge.onSources((list) => {
+  pendingSources = Array.isArray(list) ? list : [];
+});
+
 bridge.onToken((t) => {
   if (!current) return;
   if (stopLoader) {
@@ -451,7 +531,7 @@ bridge.onToken((t) => {
     stopLoader = null;
   }
   aiText += t;
-  current.textContent = aiText;
+  current.innerHTML = renderMarkdown(aiText);
   chat.scrollTop = chat.scrollHeight;
 });
 
@@ -469,7 +549,8 @@ bridge.onDone((err) => {
   } else {
     const m = aiText.match(ACTION_RE);
     const shown = aiText.replace(ACTION_RE, '').trim();
-    current.textContent = shown || (m ? '' : '(réponse vide)');
+    current.innerHTML = renderMarkdown(shown) || (m ? '' : '<p>(réponse vide)</p>');
+    addSourcesBlock(current, pendingSources);
     messages.push({ role: 'assistant', content: aiText });
     if (m && settings.allowActions) proposeAction(m[1]);
   }
