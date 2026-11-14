@@ -532,3 +532,42 @@ input::placeholder { color: rgba(30, 30, 36, 0.78); font-weight: 500; }
   from { opacity: 0; transform: translateY(8px) scale(.985); }
   to { opacity: 1; transform: none; }
 }
+
+
+/* ---------- Réglages de génération ---------- */
+.image-options {
+  display: none;
+  position: relative;
+  z-index: 2;
+  margin: 8px 0 4px;
+  padding: 12px;
+  border: 1px solid rgba(255,255,255,.58);
+  border-radius: 18px;
+  background: rgba(255,255,255,.30);
+  backdrop-filter: blur(18px);
+  animation: image-options-in .22s cubic-bezier(.2,.8,.2,1) both;
+}
+.card.image-mode .image-options { display: block; }
+.image-options-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; font-size:12px; }
+.image-options-head span { font-size:10px; opacity:.58; }
+.image-options-grid { display:grid; grid-template-columns: 1.4fr 1fr 1fr; gap:8px; }
+.image-field { display:flex; flex-direction:column; gap:5px; min-width:0; font-size:10px; font-weight:600; opacity:.82; }
+.image-field select, .image-field input {
+  width:100%; min-width:0; height:30px; padding:0 8px; border-radius:9px;
+  border:1px solid rgba(255,255,255,.68); background:rgba(255,255,255,.55);
+  color:#17171a; font:inherit; font-size:11px; outline:none;
+}
+.image-field input { font-variant-numeric:tabular-nums; }
+.image-field select:focus, .image-field input:focus { border-color:rgba(20,20,24,.55); background:rgba(255,255,255,.82); }
+.image-format-field { grid-column:span 3; }
+.image-options-note { margin-top:8px; font-size:9.5px; opacity:.58; }
+@keyframes image-options-in { from { opacity:0; transform:translateY(-5px); } to { opacity:1; transform:none; } }
+.generated-actions { display:flex; gap:7px; padding:7px 3px 2px; }
+.generated-action-btn {
+  border:1px solid rgba(255,255,255,.72); border-radius:999px; padding:6px 11px;
+  color:#17171a; background:rgba(255,255,255,.66); font:inherit; font-size:11px;
+  cursor:pointer; transition:background .16s ease, transform .16s ease;
+}
+.generated-action-btn:hover { background:rgba(255,255,255,.92); transform:translateY(-1px); }
+.generated-action-btn:disabled { opacity:.4; cursor:default; }
+.card.image-mode { border-radius:26px; }
