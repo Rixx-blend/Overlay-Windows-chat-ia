@@ -676,7 +676,7 @@ function fillPanel() {
   $('autoUpd').checked = !!settings.autoUpdate;
   $('allowAct').checked = !!settings.allowActions;
   $('webSearch').checked = !!settings.webSearch;
-  $('braveKey').value = settings.braveKey || '';
+  $('tavilyKey').value = settings.tavilyKey || '';
   refreshOllama();
   bridge.getVersion().then((v) => ($('version').textContent = v));
 }
@@ -1021,10 +1021,12 @@ $('webSearch').addEventListener('change', (e) => {
   bridge.setSettings({ webSearch: settings.webSearch });
 });
 
-$('braveKey').addEventListener('change', (e) => {
-  settings.braveKey = e.target.value.trim();
-  bridge.setSettings({ braveKey: settings.braveKey });
+$('tavilyKey').addEventListener('change', (e) => {
+  settings.tavilyKey = e.target.value.trim();
+  bridge.setSettings({ tavilyKey: settings.tavilyKey });
 });
+
+$('getTavilyKey').addEventListener('click', () => bridge.openTavilyKeys());
 
 $('installAI').addEventListener('click', async () => {
   const btn = $('installAI');

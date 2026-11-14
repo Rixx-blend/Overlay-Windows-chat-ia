@@ -52,8 +52,8 @@ const DEFAULTS = {
   autoUpdate: true,
   allowActions: true,
   webSearch: false,
-  // Clé API Brave Search saisie par l'utilisateur, stockée uniquement sur son PC.
-  braveKey: '',
+  // Clé API Tavily saisie par l'utilisateur, stockée uniquement sur son PC.
+  tavilyKey: '',
   setupDone: false,
 };
 
@@ -448,22 +448,30 @@ async function requestOllamaChat(messages, model, tokenLimit, send) {
   throw lastError || new Error("Échec de génération Ollama.");
 }
 
-// ---------- Recherche web (Brave Search API) ----------
+// ---------- Recherche web (Tavily) ----------
 // Chaque utilisateur saisit sa propre clé dans les paramètres : aucune clé n'est
 // incluse dans l'app ni dans le dépôt.
 async function searchWeb(query) {
-  const key = settings.braveKey || '';
-  if (!key) throw new Error('clé Brave absente : ajoute-la dans les paramètres');
-  const url = 'https://api.search.brave.com/res/v1/web/search?count=5&q=' + encodeURIComponent(query.slice(0, 300));
-  const res = await fetch(url, { headers: { Accept: 'application/json', 'X-Subscription-Token': key } });
+  const key = settings.tavilyKey || '';
+  if (!key) throw new Error('clé Tavily absente : ajoute-la dans les paramètres');
+  const res = await fetch('https://api.tavily.com/search', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+    body: JSON.stringify({ query: query.slice(0, 400), max_results: 5 }),
+  });
   if (!res.ok) throw new Error(`recherche HTTP ${res.status}`);
   const data = await res.json();
-  return (data.web?.results || []).slice(0, 5).map((r) => ({
+  return (data.results || []).slice(0, 5).map((r) => ({
     title: String(r.title || '').replace(/<[^>]+>/g, ''),
     url: String(r.url || ''),
-    description: String(r.description || '').replace(/<[^>]+>/g, ''),
+    description: String(r.content || '').replace(/<[^>]+>/g, ''),
   }));
 }
+
+// Ouvre uniquement la page de création de clé Tavily dans le navigateur.
+ipcMain.handle('open-tavily-keys', () => {
+  shell.openExternal('https://app.tavily.com/home');
+});
 
 function lastUserText(messages) {
   const last = [...messages].reverse().find((m) => m.role === 'user');

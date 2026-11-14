@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('api', {
   // Paramètres et IA locale
   getSettings: () => ipcRenderer.invoke('get-settings'),
   setSettings: (patch) => ipcRenderer.invoke('set-settings', patch),
+  openTavilyKeys: () => ipcRenderer.invoke('open-tavily-keys'),
   ollamaStatus: () => ipcRenderer.invoke('ollama-status'),
   startupModelsStatus: () => ipcRenderer.invoke('startup-models-status'),
   downloadSdxlModel: () => ipcRenderer.invoke('download-sdxl-model'),
