@@ -762,6 +762,66 @@ imageModeBtn.addEventListener('click', () => {
   setImageMode(!imageMode);
 });
 
+// Affiche l’image générée avec une révélation en mosaïque de pixels.
+function createImageReveal(image) {
+  const wrap = document.createElement('div');
+  wrap.className = 'image-reveal';
+  image.classList.add('chat-generated-image');
+  image.style.opacity = '0';
+  wrap.appendChild(image);
+
+  const reveal = () => {
+    if (!image.naturalWidth || !image.naturalHeight) {
+      image.style.opacity = '1';
+      return;
+    }
+
+    const displayWidth = Math.min(470, image.naturalWidth);
+    const displayHeight = Math.min(330, image.naturalHeight * (displayWidth / image.naturalWidth));
+    const cellSize = 18;
+    const cols = Math.max(1, Math.ceil(displayWidth / cellSize));
+    const rows = Math.max(1, Math.ceil(displayHeight / cellSize));
+    const canvas = document.createElement('canvas');
+    canvas.width = cols;
+    canvas.height = rows;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const grid = document.createElement('div');
+    grid.className = 'image-pixel-grid';
+    grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+    grid.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
+
+    try {
+      ctx.drawImage(image, 0, 0, cols, rows);
+      const pixels = ctx.getImageData(0, 0, cols, rows).data;
+      for (let i = 0; i < cols * rows; i++) {
+        const cell = document.createElement('span');
+        const offset = i * 4;
+        cell.style.backgroundColor = `rgba(${pixels[offset]}, ${pixels[offset + 1]}, ${pixels[offset + 2]}, ${pixels[offset + 3] / 255})`;
+        cell.style.animationDelay = `${Math.random() * 420}ms`;
+        grid.appendChild(cell);
+      }
+      wrap.appendChild(grid);
+      requestAnimationFrame(() => {
+        image.style.opacity = '1';
+        grid.classList.add('is-revealing');
+        setTimeout(() => grid.remove(), 950);
+      });
+    } catch {
+      image.style.opacity = '1';
+    }
+  };
+
+  if (image.complete && image.naturalWidth) reveal();
+  else {
+    image.addEventListener('load', reveal, { once: true });
+    image.addEventListener('error', () => {
+      wrap.classList.add('image-load-error');
+      wrap.textContent = 'Impossible d’afficher l’image générée.';
+    }, { once: true });
+  }
+  return wrap;
+}
+
 async function generateImageInChat(prompt, referenceImages = []) {
   const cleanPrompt = String(prompt || '').trim();
   if (!cleanPrompt || busy) return;
@@ -808,6 +868,7 @@ async function generateImageInChat(prompt, referenceImages = []) {
     image.className = 'chat-generated-image';
     image.alt = 'Image générée : ' + cleanPrompt;
     image.src = generated.dataUrl;
+    const imageReveal = createImageReveal(image);
     const generatedPath = generated.path || null;
     const generatedDataUrl = generated.dataUrl;
     lastGeneratedImagePath = generatedPath;
@@ -853,7 +914,7 @@ async function generateImageInChat(prompt, referenceImages = []) {
     makeAction('Supprimer le fond', actionIcons.removeBg, () => {
       if (generatedPath) removeBackgroundInChat(generatedPath);
     }, !generatedPath);
-    current.replaceChildren(image, caption, actions);
+    current.replaceChildren(imageReveal, caption, actions);
     messages.push({ role: 'assistant', content: 'Image générée avec succès.' });
   } catch (err) {
     if (stopLoader) { stopLoader(); stopLoader = null; }
