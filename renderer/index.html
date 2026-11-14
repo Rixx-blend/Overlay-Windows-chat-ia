@@ -30,38 +30,52 @@
       </div>
 
       <section class="image-options" id="imageOptions" aria-label="Réglages de génération">
-        <div class="image-options-head"><strong>Génération d’image</strong><span>SDXL local</span></div>
-        <div class="image-options-grid">
-          <label class="image-field image-format-field">Format
-            <select id="imageFormat">
-              <option value="1024x1024">Carré · 1024 × 1024</option>
-              <option value="832x1216">Portrait · 832 × 1216</option>
-              <option value="1216x832">Paysage · 1216 × 832</option>
-              <option value="768x1024">Portrait · 768 × 1024</option>
-              <option value="1024x768">Paysage · 1024 × 768</option>
-              <option value="custom">Personnalisé</option>
-            </select>
-          </label>
-          <label class="image-field">Largeur (px)<input id="imageWidth" type="number" min="512" max="1536" step="8" value="1024"></label>
-          <label class="image-field">Hauteur (px)<input id="imageHeight" type="number" min="512" max="1536" step="8" value="1024"></label>
-          <label class="image-field">Style
-            <select id="imageStyle">
-              <option value="none">Aucun style imposé</option><option value="photorealistic">Photorealiste</option>
-              <option value="cinematic">Cinématique</option><option value="3d">Rendu 3D</option>
-              <option value="illustration">Illustration</option><option value="anime">Anime</option>
-              <option value="graphic">Design graphique</option><option value="pixel">Pixel art</option>
-            </select>
-          </label>
-          <label class="image-field">Détails
-            <select id="imageSteps"><option value="20">Rapide</option><option value="25" selected>Équilibré</option><option value="30">Détaillé</option></select>
-          </label>
-        </div>
-        <div class="reference-row">
-          <button class="generated-action-btn" id="addImageReference" type="button">Ajouter des images de référence</button>
-          <span id="referenceCount">Aucune référence</span>
+        <div class="image-settings-row">
+          <div class="image-setting-wrap">
+            <button class="pill image-setting-btn" type="button" data-image-popover="resolution">Résolution <span id="resolutionSummary">1024 × 1024</span></button>
+            <div class="image-popover" id="popover-resolution" hidden>
+              <label class="image-field">Format
+                <select id="imageFormat">
+                  <option value="1024x1024">Carré · 1024 × 1024</option>
+                  <option value="832x1216">Portrait · 832 × 1216</option>
+                  <option value="1216x832">Paysage · 1216 × 832</option>
+                  <option value="768x1024">Portrait · 768 × 1024</option>
+                  <option value="1024x768">Paysage · 1024 × 768</option>
+                  <option value="custom">Personnalisé</option>
+                </select>
+              </label>
+              <div class="image-dimensions">
+                <label class="image-field">Largeur<input id="imageWidth" type="number" min="512" max="1536" step="8" value="1024"></label>
+                <label class="image-field">Hauteur<input id="imageHeight" type="number" min="512" max="1536" step="8" value="1024"></label>
+              </div>
+            </div>
+          </div>
+          <div class="image-setting-wrap">
+            <button class="pill image-setting-btn" type="button" data-image-popover="style">Style <span id="styleSummary">Aucun</span></button>
+            <div class="image-popover" id="popover-style" hidden>
+              <label class="image-field">Style visuel
+                <select id="imageStyle">
+                  <option value="none">Aucun style imposé</option><option value="photorealistic">Photorealiste</option>
+                  <option value="cinematic">Cinématique</option><option value="3d">Rendu 3D</option>
+                  <option value="illustration">Illustration</option><option value="anime">Anime</option>
+                  <option value="graphic">Design graphique</option><option value="pixel">Pixel art</option>
+                </select>
+              </label>
+            </div>
+          </div>
+          <div class="image-setting-wrap">
+            <button class="pill image-setting-btn" type="button" data-image-popover="details">Détails <span id="detailsSummary">Équilibré</span></button>
+            <div class="image-popover" id="popover-details" hidden>
+              <label class="image-field">Niveau de détail
+                <select id="imageSteps"><option value="20">Rapide</option><option value="25" selected>Équilibré</option><option value="30">Détaillé</option></select>
+              </label>
+            </div>
+          </div>
+          <div class="image-setting-wrap">
+            <button class="pill image-setting-btn" id="addImageReference" type="button">Référence <span id="referenceCount">0</span></button>
+          </div>
         </div>
         <div class="reference-previews" id="referencePreviews"></div>
-        <div class="image-options-note">Glisse aussi tes images directement dans le chat. Les références guident la composition et le style.</div>
       </section>
 
       <div class="footer">
