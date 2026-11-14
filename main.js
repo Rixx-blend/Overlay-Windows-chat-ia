@@ -704,38 +704,50 @@ function findComfyInstallation() {
   const home = os.homedir();
   const roots = [
     settings.comfyuiPath,
-    path.join(home, 'ComfyUI_windows_portable'),
-    path.join(home, 'ComfyUI_windows_portable_nvidia'),
-    path.join(home, 'Downloads', 'ComfyUI_windows_portable'),
-    path.join(home, 'Desktop', 'ComfyUI_windows_portable'),
-    path.join(home, 'Documents', 'ComfyUI_windows_portable'),
-    path.join(home, 'ComfyUI'),
-    path.join(home, 'Downloads', 'ComfyUI'),
-    path.join(home, 'Desktop', 'ComfyUI'),
-    'C:\\ComfyUI_windows_portable',
-    'D:\\ComfyUI_windows_portable',
-    'C:\\ComfyUI',
-    'D:\\ComfyUI',
+    home,
+    path.join(home, 'Downloads'),
+    path.join(home, 'Desktop'),
+    path.join(home, 'Documents'),
+    path.join(home, 'OneDrive'),
+    'C:\\',
+    'D:\\',
   ].filter(Boolean);
-  for (const root of [...new Set(roots.map((p) => path.resolve(p)))]) {
-    const nvidiaBat = path.join(root, 'run_nvidia_gpu.bat');
-    const cpuBat = path.join(root, 'run_cpu.bat');
-    const portablePython = path.join(root, 'python_embeded', 'python.exe');
-    const portableMain = path.join(root, 'ComfyUI', 'main.py');
-    if (fs.existsSync(nvidiaBat) || fs.existsSync(cpuBat) || (fs.existsSync(portablePython) && fs.existsSync(portableMain))) {
-      return {
-        root,
-        bat: fs.existsSync(nvidiaBat) ? nvidiaBat : (fs.existsSync(cpuBat) ? cpuBat : null),
-        cpuBat: fs.existsSync(cpuBat) ? cpuBat : null,
-        python: portablePython,
-        main: portableMain,
-      };
-    }
-    const regularMain = path.join(root, 'main.py');
-    const venvPython = path.join(root, 'venv', 'Scripts', 'python.exe');
-    if (fs.existsSync(regularMain) && fs.existsSync(venvPython)) {
-      return { root, bat: null, cpuBat: null, python: venvPython, main: regularMain };
-    }
+  const queue = roots.map((root) => ({ root: path.resolve(root), depth: 0 }));
+  const visited = new Set();
+  let inspected = 0;
+  while (queue.length && inspected < 2500) {
+    const item = queue.shift();
+    if (!item || visited.has(item.root)) continue;
+    visited.add(item.root);
+    inspected++;
+    const root = item.root;
+    try {
+      const nvidiaBat = path.join(root, 'run_nvidia_gpu.bat');
+      const cpuBat = path.join(root, 'run_cpu.bat');
+      const portablePython = path.join(root, 'python_embeded', 'python.exe');
+      const portableMain = path.join(root, 'ComfyUI', 'main.py');
+      if (fs.existsSync(nvidiaBat) || fs.existsSync(cpuBat) || (fs.existsSync(portablePython) && fs.existsSync(portableMain))) {
+        return {
+          root,
+          bat: fs.existsSync(nvidiaBat) ? nvidiaBat : (fs.existsSync(cpuBat) ? cpuBat : null),
+          cpuBat: fs.existsSync(cpuBat) ? cpuBat : null,
+          python: portablePython,
+          main: portableMain,
+        };
+      }
+      const regularMain = path.join(root, 'main.py');
+      const venvPython = path.join(root, 'venv', 'Scripts', 'python.exe');
+      if (fs.existsSync(regularMain) && fs.existsSync(venvPython)) {
+        return { root, bat: null, cpuBat: null, python: venvPython, main: regularMain };
+      }
+      if (item.depth >= 3) continue;
+      for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+        if (!entry.isDirectory() || entry.name === 'node_modules' || entry.name === '$RECYCLE.BIN' || entry.name === 'WindowsApps') continue;
+        if (entry.name.toLowerCase().includes('comfy') || item.depth < 2) {
+          queue.push({ root: path.join(root, entry.name), depth: item.depth + 1 });
+        }
+      }
+    } catch {}
   }
   return null;
 }
@@ -758,41 +770,65 @@ async function installComfyPortable() {
   }
 
   const existing = findComfyInstallation();
-  if (existing) return existing;
+  if (existing) {
+    settings.comfyuiPath = existing.root;
+    saveSettings();
+    imageReport('Installation ComfyUI existante détectée : ' + existing.root);
+    return existing;
+  }
 
   comfyInstallInProgress = true;
   const home = os.homedir();
   const archive = path.join(os.tmpdir(), 'ComfyUI_windows_portable_nvidia.7z');
+  const extractor = path.join(os.tmpdir(), '7zr.exe');
+  const searchDirs = [path.join(home, 'Downloads'), path.join(home, 'Desktop'), home];
+  let existingArchive = null;
+  for (const dir of searchDirs) {
+    try {
+      const match = fs.readdirSync(dir, { withFileTypes: true })
+        .filter((entry) => entry.isFile() && /^ComfyUI.*\\.7z$/i.test(entry.name))
+        .map((entry) => path.join(dir, entry.name))[0];
+      if (match) { existingArchive = match; break; }
+    } catch {}
+  }
+  const sourceArchive = existingArchive || archive;
   const downloadUrl = 'https://github.com/comfyanonymous/ComfyUI/releases/latest/download/ComfyUI_windows_portable_nvidia.7z';
 
   try {
-    imageReport('ComfyUI absent. Téléchargement de ComfyUI Windows Portable…');
-    await downloadTo(downloadUrl, archive, (percent) => {
-      imageReport('Téléchargement de ComfyUI Portable : ' + percent + ' %');
-    });
+    if (existingArchive) {
+      imageReport('Archive ComfyUI déjà téléchargée détectée. Préparation de l’installation…');
+    } else {
+      imageReport('ComfyUI absent. Téléchargement de ComfyUI Windows Portable…');
+      await downloadTo(downloadUrl, archive, (percent) => {
+        imageReport('Téléchargement de ComfyUI Portable : ' + percent + ' %');
+      });
+    }
 
-    imageReport('Extraction de ComfyUI dans le dossier utilisateur…');
+    imageReport('Préparation de l’extracteur 7-Zip…');
+    await downloadTo('https://www.7-zip.org/a/7zr.exe', extractor, () => {});
+    imageReport('Extraction de ComfyUI dans ' + path.join(home, 'ComfyUI_windows_portable') + '…');
     await new Promise((resolve, reject) => {
-      execFile('tar.exe', ['-xf', archive, '-C', home], {
+      execFile(extractor, ['x', sourceArchive, '-o' + home, '-y'], {
         windowsHide: true,
         maxBuffer: 10 * 1024 * 1024,
       }, (error, stdout, stderr) => {
-        if (error) reject(new Error('Extraction de ComfyUI impossible. Vérifie que Windows dispose de tar.exe : ' + (stderr || error.message).slice(0, 400)));
+        if (error) reject(new Error('Extraction de ComfyUI impossible : ' + (stderr || error.message).slice(0, 500)));
         else resolve();
       });
     });
 
     const installation = findComfyInstallation();
-    if (!installation) throw new Error('L’archive a été extraite, mais le dossier ComfyUI_windows_portable est incomplet.');
+    if (!installation) throw new Error('Extraction terminée, mais aucun lanceur ComfyUI n’a été trouvé. Vérifie le contenu de l’archive.');
     settings.comfyuiPath = installation.root;
     saveSettings();
-    imageReport('ComfyUI Portable installé dans ' + installation.root);
+    imageReport('ComfyUI Portable prêt dans ' + installation.root);
     return installation;
   } catch (err) {
     imageReport('Installation de ComfyUI impossible : ' + err.message);
     throw err;
   } finally {
     try { if (fs.existsSync(archive)) fs.unlinkSync(archive); } catch {}
+    try { if (fs.existsSync(extractor)) fs.unlinkSync(extractor); } catch {}
     comfyInstallInProgress = false;
   }
 }
