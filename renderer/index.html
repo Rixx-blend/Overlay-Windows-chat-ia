@@ -18,6 +18,9 @@
 
       <div class="row">
         <input id="input" placeholder="Demander n'importe quoi..." autocomplete="off" spellcheck="false">
+        <button class="ibtn ghost" id="imagesBtn" title="Génération d'images SDXL">
+          <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
+        </button>
         <button class="ibtn ghost" id="settingsBtn" title="Paramètres">
           <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
         </button>
@@ -81,6 +84,44 @@
 
         <h3>Actions sur le PC</h3>
         <label class="chk"><input type="checkbox" id="allowAct"> Autoriser l'IA à proposer des commandes (validation à chaque fois)</label>
+      </section>
+
+      <section class="panel image-panel" id="imagePanel">
+        <div class="row-line">
+          <h3>Génération d’images · SDXL 1.0</h3>
+          <button class="ibtn ghost" id="closeImages" title="Fermer">
+            <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>
+          </button>
+        </div>
+        <div class="image-engine-row">
+          <span id="sdxlStatus" class="muted">Vérification de ComfyUI…</span>
+          <button class="btn" id="checkSdxl">Actualiser</button>
+        </div>
+        <label class="image-label" for="imagePrompt">Prompt</label>
+        <textarea id="imagePrompt" maxlength="2000" placeholder="Décris précisément l’image à générer…" rows="4"></textarea>
+        <label class="image-label" for="imageNegative">Prompt négatif</label>
+        <textarea id="imageNegative" maxlength="1000" placeholder="Éléments à éviter…" rows="2"></textarea>
+        <div class="image-options">
+          <label>Largeur
+            <select id="imageWidth"><option value="1024">1024</option><option value="768">768</option><option value="512">512</option></select>
+          </label>
+          <label>Hauteur
+            <select id="imageHeight"><option value="1024">1024</option><option value="768">768</option><option value="512">512</option></select>
+          </label>
+          <label>Étapes
+            <select id="imageSteps"><option value="25">25</option><option value="20">20</option><option value="30">30</option><option value="35">35</option><option value="40">40</option></select>
+          </label>
+        </div>
+        <button class="btn dark generate-btn" id="generateImage">Générer l’image</button>
+        <div class="prog" id="imageProgress" aria-live="polite"></div>
+        <div class="image-result" id="imageResult" hidden>
+          <img id="generatedImage" alt="Image générée avec Stable Diffusion XL">
+          <div class="image-result-footer">
+            <span id="imageSavedPath" class="muted"></span>
+            <button class="btn" id="openGeneratedImage">Ouvrir</button>
+          </div>
+        </div>
+        <p class="muted image-help">Nécessite ComfyUI lancé sur le port 8188 et le checkpoint sd_xl_base_1.0.safetensors dans models/checkpoints.</p>
       </section>
     </main>
   </div>
