@@ -280,7 +280,7 @@ async function downloadTo(url, dest, onPercent) {
   await new Promise((resolve, reject) => ws.end((err) => (err ? reject(err) : resolve())));
 }
 
-// Préchauffe le modèle : il reste en mémoire (keep_alive -1), donc le premier message est rapide
+// Vérifie le modèle sans le conserver en mémoire après l'installation.
 async function prechauffer() {
   report('Démarrage du cerveau local…');
   const r = await fetch(OLLAMA + '/api/generate', {
@@ -290,7 +290,7 @@ async function prechauffer() {
       model: OLLAMA_MODEL,
       prompt: 'Réponds simplement OK.',
       stream: false,
-      keep_alive: -1,
+      keep_alive: 0,
       options: { num_predict: 1, num_ctx: 2048 },
     }),
   });
@@ -395,7 +395,8 @@ async function requestOllamaChat(messages, model, tokenLimit, send) {
           model,
           messages,
           stream: true,
-          keep_alive: '5m',
+          // Décharge Qwen dès que la réponse est terminée : aucune VRAM/RAM réservée au repos.
+          keep_alive: 0,
           options: attempt.options,
         }),
       });
@@ -445,6 +446,11 @@ Réponds directement à la demande. Évite les répétitions et arrête-toi dès
 
   try {
     if (engine === 'ollama') {
+      if (!(await ollamaTags())) {
+        report('Démarrage du moteur local Ollama…');
+        startOllamaServer();
+        if (!(await attendreServeur(45000))) throw new Error('Le service Ollama ne démarre pas.');
+      }
       await requestOllamaChat(toOllamaMessages(full), model, L.tokens, send);
     } else {
       const body = { model, messages: full, stream: true, max_completion_tokens: L.tokens };
@@ -699,6 +705,32 @@ async function comfyRequest(route, options = {}, timeout = 10000) {
 
 let comfyLaunchInProgress = false;
 let comfyInstallInProgress = false;
+let comfyOwnedPid = null;
+let comfyIdleTimer = null;
+let comfyGenerationInProgress = false;
+
+function scheduleComfyIdleShutdown() {
+  if (!comfyOwnedPid || comfyGenerationInProgress) return;
+  clearTimeout(comfyIdleTimer);
+  comfyIdleTimer = setTimeout(async () => {
+    if (!comfyOwnedPid || comfyGenerationInProgress) return;
+    try {
+      await fetch(COMFY_URL + '/free', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ unload_models: true, free_memory: true }),
+        signal: AbortSignal.timeout(10000),
+      });
+    } catch {}
+    const pid = comfyOwnedPid;
+    comfyOwnedPid = null;
+    if (pid && process.platform === 'win32') {
+      spawn('taskkill', ['/PID', String(pid), '/T', '/F'], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+    }
+    imageReport('ComfyUI arrêté après inactivité. Les ressources sont libérées.');
+  }, 45000);
+  if (typeof comfyIdleTimer.unref === 'function') comfyIdleTimer.unref();
+}
 
 function findComfyInstallation() {
   const home = os.homedir();
@@ -904,6 +936,7 @@ async function startComfyIfAvailable() {
       exitInfo = 'Le processus ComfyUI s’est arrêté (code ' + code + (signal ? ', signal ' + signal : '') + ').';
     });
     child.unref();
+    comfyOwnedPid = child.pid || null;
 
     const deadline = Date.now() + 90000;
     while (Date.now() < deadline) {
@@ -941,11 +974,7 @@ async function startComfyIfAvailable() {
 }
 
 async function getImageStatus() {
-  try {
-    await comfyRequest('/system_stats');
-  } catch {
-    await startComfyIfAvailable();
-  }
+  // Un simple rafraîchissement d'état ne doit jamais démarrer ComfyUI.
   try {
     await comfyRequest('/system_stats');
     const infoResponse = await comfyRequest('/object_info/CheckpointLoaderSimple');
@@ -1001,11 +1030,7 @@ function findComfyCheckpointDirectory() {
 
 async function getStartupModelsStatus() {
   let tags = await ollamaTags();
-  if (!tags && findOllama()) {
-    startOllamaServer();
-    await attendreServeur(15000);
-    tags = await ollamaTags();
-  }
+  // Ne démarre pas Ollama juste pour afficher l'état des modèles.
   const installedNames = (tags?.models || []).map((model) => model.name);
   const qwenInstalled = installedNames.includes(OLLAMA_MODEL) || installedNames.includes(OLLAMA_MODEL + ':latest');
   const imageStatus = await getImageStatus();
@@ -1100,12 +1125,12 @@ async function generateLocalImage(options) {
   if (!prompt) throw new Error('Écris un prompt avant de lancer la génération.');
   if (prompt.length > 2000 || negative.length > 1000) throw new Error('Prompt trop long.');
 
-  let status = await getImageStatus();
-  if (!findComfyInstallation()) {
-    await installComfyPortable();
-    await startComfyIfAvailable();
-    status = await getImageStatus();
-  }
+  clearTimeout(comfyIdleTimer);
+  comfyGenerationInProgress = true;
+  let status;
+  if (!findComfyInstallation()) await installComfyPortable();
+  await startComfyIfAvailable();
+  status = await getImageStatus();
   if (!status.running) {
     throw new Error('ComfyUI est installé mais ne démarre pas. Vérifie les pilotes graphiques et le fichier debug.log.');
   }
@@ -1162,7 +1187,14 @@ async function generateLocalImage(options) {
 }
 
 ipcMain.handle('image-status', () => getImageStatus());
-ipcMain.handle('generate-image', (_e, options) => generateLocalImage(options));
+ipcMain.handle('generate-image', async (_e, options) => {
+  try {
+    return await generateLocalImage(options);
+  } finally {
+    comfyGenerationInProgress = false;
+    scheduleComfyIdleShutdown();
+  }
+});
 ipcMain.handle('open-generated-image', async () => {
   if (!lastGeneratedImage || !fs.existsSync(lastGeneratedImage)) return { ok: false, message: 'Aucune image générée dans cette session.' };
   const error = await shell.openPath(lastGeneratedImage);
@@ -1387,11 +1419,7 @@ app.whenReady().then(() => {
     setInterval(() => settings.autoUpdate && checkForUpdates(), 6 * 60 * 60 * 1000);
   }
 
-  // IA locale déjà installée mais arrêtée : on relance son serveur sans rien demander.
-  // L'installation, elle, est proposée dans l'overlay (le renderer demande).
-  ollamaTags().then((t) => {
-    if (!t) startOllamaServer();
-  });
+  // Les moteurs locaux restent arrêtés au repos et démarrent à la première requête.
 });
 
 app.on('window-all-closed', () => app.quit());
