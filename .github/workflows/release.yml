@@ -33,6 +33,14 @@ jobs:
           npm version patch --no-git-tag-version
           echo "VERSION=$(node -p "require('./package.json').version")" >> "$GITHUB_ENV"
 
+      - name: Vérifier la syntaxe JavaScript
+        shell: bash
+        run: |
+          node --check main.js
+          node --check preload.js
+          node --check renderer/renderer.js
+          node --check renderer/glass.js
+
       - name: Installer les dépendances
         run: npm ci
 
