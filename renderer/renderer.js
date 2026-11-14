@@ -725,7 +725,7 @@ async function removeBackgroundInChat(imagePath) {
   busy = true;
   send.classList.add('busy');
   const resultBubble = addBubble('ai', '');
-  const loader = makeLoader('Détourage local · RMBG-1.4');
+  const loader = makeLoader('Détourage local · BiRefNet');
   stopLoader = loader.stop;
   imageProgressLabel = loader.el.querySelector('.shimmer');
   resultBubble.replaceChildren(loader.el);
