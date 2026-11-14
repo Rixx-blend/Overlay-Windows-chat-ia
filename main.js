@@ -1,20 +1,32 @@
-const { app, BrowserWindow, globalShortcut, ipcMain, screen, desktopCapturer } = require('electron');
+const { app, BrowserWindow, globalShortcut, ipcMain, screen, desktopCapturer, session } = require('electron');
 const path = require('path');
 
 const API_URL = 'https://api.openai.com/v1/chat/completions';
 
-// Fenêtre de taille fixe, assez grande pour la carte en état ouvert.
-// Pas de redimensionnement pendant l'animation : plus de lag, la transparence laisse passer les clics.
+// Fenêtre de taille fixe (assez grande pour la carte ouverte) : aucun redimensionnement pendant l'animation
 const WIN_W = 620;
 const WIN_H = 580;
 
-// Le fond est flouté de toute façon : on le capture à demi-résolution (beaucoup plus rapide)
-const CAPTURE_SCALE = 0.4;
-
 let win = null;
-let capturing = false;
-let queued = false;
-let dragOffset = null;
+
+function displayOf() {
+  return screen.getDisplayMatching(win.getBounds());
+}
+
+// Position de la fenêtre dans son écran : le renderer en déduit la zone du bureau à afficher
+function sendGeometry() {
+  if (!win || win.isDestroyed()) return;
+  const b = win.getBounds();
+  const d = displayOf();
+  win.webContents.send('geometry', {
+    x: b.x - d.bounds.x,
+    y: b.y - d.bounds.y,
+    w: b.width,
+    h: b.height,
+    dw: d.bounds.width,
+    dh: d.bounds.height,
+  });
+}
 
 function createWindow() {
   const { workArea } = screen.getPrimaryDisplay();
@@ -33,74 +45,43 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      backgroundThrottling: false,
     },
   });
 
   win.setAlwaysOnTop(true, 'screen-saver');
-  // Exclut la fenêtre de la capture d'écran : on peut ainsi capturer le bureau derrière elle
+  // Exclut la fenêtre de la capture : sinon le verre se capturerait lui-même
   win.setContentProtection(true);
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
-  // Les zones vides laissent passer les clics ; la carte les reprend au survol
   win.setIgnoreMouseEvents(true, { forward: true });
 
-  win.webContents.once('did-finish-load', scheduleCapture);
-  win.on('move', scheduleCapture);
-  win.on('show', scheduleCapture);
-  setInterval(() => {
-    if (win && win.isVisible()) scheduleCapture();
-  }, 4000);
-}
-
-// Une seule capture à la fois ; si une demande arrive pendant, on en relance une
-function scheduleCapture() {
-  if (capturing) {
-    queued = true;
-    return;
-  }
-  capturing = true;
-  capture()
-    .catch((err) => console.error('capture :', err.message))
-    .finally(() => {
-      capturing = false;
-      if (queued) {
-        queued = false;
-        scheduleCapture();
-      }
-    });
-}
-
-async function capture() {
-  if (!win || win.isDestroyed() || !win.isVisible()) return;
-  const b = win.getBounds();
-  const display = screen.getDisplayMatching(b);
-  const s = display.scaleFactor * CAPTURE_SCALE;
-
-  const sources = await desktopCapturer.getSources({
-    types: ['screen'],
-    thumbnailSize: {
-      width: Math.round(display.size.width * s),
-      height: Math.round(display.size.height * s),
-    },
+  win.webContents.once('did-finish-load', () => {
+    sendGeometry();
+    win.webContents.send('visibility', win.isVisible());
   });
-  const src = sources.find((x) => x.display_id === String(display.id)) || sources[0];
-  if (!src || win.isDestroyed()) return;
-
-  const full = src.thumbnail;
-  const fs = full.getSize();
-  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-  const x = clamp(Math.round((b.x - display.bounds.x) * s), 0, fs.width - 1);
-  const y = clamp(Math.round((b.y - display.bounds.y) * s), 0, fs.height - 1);
-  const w = Math.max(1, Math.min(Math.round(b.width * s), fs.width - x));
-  const h = Math.max(1, Math.min(Math.round(b.height * s), fs.height - y));
-
-  // JPEG : bien plus rapide à encoder/décoder que le PNG
-  const jpeg = full.crop({ x, y, width: w, height: h }).toJPEG(75);
-  if (!win.isDestroyed()) {
-    win.webContents.send('backdrop', 'data:image/jpeg;base64,' + jpeg.toString('base64'));
-  }
+  win.on('move', sendGeometry);
+  win.on('show', () => {
+    sendGeometry();
+    win.webContents.send('visibility', true);
+  });
+  win.on('hide', () => win.webContents.send('visibility', false));
 }
 
-// Déplacement de la fenêtre : on suit la position du curseur côté système (fluide, sans lag)
+// Le renderer demande le flux de l'écran (vidéo GPU continue, bien plus rapide que des captures d'image)
+function setupCapture() {
+  session.defaultSession.setDisplayMediaRequestHandler(async (_req, callback) => {
+    const d = displayOf();
+    const sources = await desktopCapturer.getSources({
+      types: ['screen'],
+      thumbnailSize: { width: 0, height: 0 },
+    });
+    const src = sources.find((s) => s.display_id === String(d.id)) || sources[0];
+    callback(src ? { video: src } : {});
+  });
+}
+
+// Déplacement de la fenêtre : on suit la position du curseur côté système
+let dragOffset = null;
 ipcMain.on('drag-start', () => {
   if (!win) return;
   const [x, y] = win.getPosition();
@@ -114,7 +95,6 @@ ipcMain.on('drag-move', () => {
 });
 ipcMain.on('drag-end', () => {
   dragOffset = null;
-  scheduleCapture();
 });
 
 ipcMain.on('mouse-in', () => win && win.setIgnoreMouseEvents(false));
@@ -178,7 +158,7 @@ function toggleOverlay() {
 
 app.whenReady().then(() => {
   createWindow();
-  // Ctrl+Alt+Espace : affiche / masque l'overlay, depuis n'importe quelle application
+  setupCapture();
   globalShortcut.register('Control+Alt+Space', toggleOverlay);
 });
 

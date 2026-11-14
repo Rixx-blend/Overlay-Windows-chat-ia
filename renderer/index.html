@@ -2,12 +2,14 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src data: blob:" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'" />
   <title>OverlayIA</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <!-- Verre liquide : shader WebGL qui déforme le fond capturé du bureau -->
+  <!-- Flux de l'écran (source de la texture du verre) -->
+  <video id="bg" muted playsinline></video>
+  <!-- Verre liquide : shader WebGL qui déforme le bureau derrière la fenêtre -->
   <canvas id="glass"></canvas>
   <div class="stage">
     <main class="card" id="card">

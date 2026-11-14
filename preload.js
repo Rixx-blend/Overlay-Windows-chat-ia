@@ -11,5 +11,6 @@ contextBridge.exposeInMainWorld('api', {
   onToken: (cb) => ipcRenderer.on('token', (_e, t) => cb(t)),
   onDone: (cb) => ipcRenderer.on('done', (_e, err) => cb(err)),
   onFocus: (cb) => ipcRenderer.on('focus-input', () => cb()),
-  onBackdrop: (cb) => ipcRenderer.on('backdrop', (_e, dataUrl) => cb(dataUrl)),
+  onGeometry: (cb) => ipcRenderer.on('geometry', (_e, g) => cb(g)),
+  onVisibility: (cb) => ipcRenderer.on('visibility', (_e, v) => cb(v)),
 });

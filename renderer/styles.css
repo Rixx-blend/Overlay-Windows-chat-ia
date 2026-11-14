@@ -19,7 +19,6 @@ html, body {
   height: 100vh;
   pointer-events: none;
   z-index: 0;
-  filter: drop-shadow(0 16px 26px rgba(0, 0, 0, 0.28));
 }
 
 /* Marge pour l'ombre et la réfraction (doit correspondre à PAD dans renderer.js) */
@@ -144,4 +143,13 @@ select {
   color: #3a3a3c;
   font-size: 20px;
   cursor: pointer;
+}
+
+/* Élément vidéo source du verre : invisible mais décodé */
+#bg {
+  position: fixed;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
 }
