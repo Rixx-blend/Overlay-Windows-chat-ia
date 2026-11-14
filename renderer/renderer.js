@@ -1202,7 +1202,7 @@ bridge.onComputerUseStatus((state) => {
     status.textContent = state.message;
     activeComputerBubble.appendChild(status);
   }
-  if (!state.active && state.message === 'Agent inactif.') activeComputerBubble = null;
+  if (!state.active) activeComputerBubble = null;
 });
 bridge.onComputerUseHistory((item) => {
   addComputerHistory(item);
