@@ -1279,8 +1279,8 @@ async function removeImageBackground(imagePath) {
   };
 }
 
-function buildSdxlWorkflow({ prompt, negative, width, height, steps, referenceName }) {
-  const seed = Math.floor(Math.random() * 2147483647);
+function buildSdxlWorkflow({ prompt, negative, width, height, steps, referenceName, seed: requestedSeed, denoise }) {
+  const seed = Number.isInteger(requestedSeed) ? requestedSeed : Math.floor(Math.random() * 2147483647);
   const latentNode = referenceName
     ? { class_type: 'VAEEncode', inputs: { pixels: ['8', 0], vae: ['1', 2] } }
     : { class_type: 'EmptyLatentImage', inputs: { width, height, batch_size: 1 } };
@@ -1293,12 +1293,8 @@ function buildSdxlWorkflow({ prompt, negative, width, height, steps, referenceNa
       inputs: {
         seed, steps, cfg: referenceName ? 7.5 : 7,
         sampler_name: 'dpmpp_2m', scheduler: 'karras',
-        // Denoise img2img : 0.82 recréait presque l'image (la référence était perdue).
-        // 0.65 gardait la pose mais dérivait sur le visage, les cheveux et les bracelets.
-        // 0.5 gardait l'identité mais l'image ressortait quasi identique : la neige
-        // n'apparaissait pas. 0.6 laisse assez de liberté au prompt tout en gardant
-        // la silhouette et le visage. À ajuster entre 0.55 et 0.65.
-        denoise: referenceName ? 0.6 : 1,
+        // Denoise img2img réglé par l'utilisateur (défaut 0.6 côté interface).
+        denoise: referenceName ? denoise : 1,
         model: ['1', 0], positive: ['2', 0], negative: ['3', 0],
         latent_image: referenceName ? ['9', 0] : ['4', 0],
       },
@@ -1326,6 +1322,13 @@ async function generateLocalImage(options) {
   const height = validDimensions(requestedHeight) ? requestedHeight : 1024;
   if (width * height > 1500000) throw new Error('Résolution trop élevée : limite de 1,5 mégapixel pour éviter un manque de mémoire.');
   const steps = Math.min(40, Math.max(10, Number(options?.steps) || 25));
+  // Graine fixée par l'utilisateur pour comparer deux prompts sur la même base ; sinon aléatoire.
+  const requestedSeed = Number(options?.seed);
+  const seed = Number.isInteger(requestedSeed) && requestedSeed >= 0 && requestedSeed <= 2147483647
+    ? requestedSeed
+    : Math.floor(Math.random() * 2147483647);
+  // Force de modification (img2img) : entre 0.3 (proche de la référence) et 0.95 (presque libre).
+  const denoise = Math.min(0.95, Math.max(0.3, Number(options?.denoise) || 0.6));
   if (!prompt) throw new Error('Écris un prompt avant de lancer la génération.');
   if (prompt.length > 2000 || negative.length > 1000) throw new Error('Prompt trop long.');
 
@@ -1391,7 +1394,7 @@ async function generateLocalImage(options) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      prompt: buildSdxlWorkflow({ prompt: workflowPrompt, negative, width: referenceName ? referenceWidth : width, height: referenceName ? referenceHeight : height, steps: referenceName ? Math.max(30, steps) : steps, referenceName }),
+      prompt: buildSdxlWorkflow({ prompt: workflowPrompt, negative, width: referenceName ? referenceWidth : width, height: referenceName ? referenceHeight : height, steps: referenceName ? Math.max(30, steps) : steps, referenceName, seed, denoise }),
       client_id: 'overlayia-' + process.pid,
     }),
   });
@@ -1426,12 +1429,14 @@ async function generateLocalImage(options) {
   const buffer = Buffer.from(await imageResponse.arrayBuffer());
   const outputDir = path.join(app.getPath('pictures'), 'OverlayIA');
   fs.mkdirSync(outputDir, { recursive: true });
-  const safeName = 'SDXL-' + new Date().toISOString().replace(/[:.]/g, '-') + '.png';
+  // La graine utilisée est inscrite dans le nom du fichier pour pouvoir relancer la même génération.
+  const usedSeed = seed;
+  const safeName = 'SDXL-' + new Date().toISOString().replace(/[:.]/g, '-') + '-seed' + usedSeed + '.png';
   const outputPath = path.join(outputDir, safeName);
   fs.writeFileSync(outputPath, buffer);
   lastGeneratedImage = outputPath;
   imageReport('Image générée et enregistrée.');
-  return { ok: true, path: outputPath, dataUrl: 'data:image/png;base64,' + buffer.toString('base64') };
+  return { ok: true, path: outputPath, seed: usedSeed, dataUrl: 'data:image/png;base64,' + buffer.toString('base64') };
 }
 
 ipcMain.handle('image-status', () => getImageStatus());

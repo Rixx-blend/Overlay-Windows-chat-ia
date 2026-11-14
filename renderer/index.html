@@ -69,6 +69,13 @@
               <label class="image-field">Niveau de détail
                 <select id="imageSteps"><option value="20">Rapide</option><option value="25" selected>Équilibré</option><option value="30">Détaillé</option></select>
               </label>
+              <label class="image-field">Force de modification (référence)
+                <input type="range" id="imageDenoise" min="30" max="90" step="5" value="60">
+                <span id="denoiseValue">60 %</span>
+              </label>
+              <label class="image-field">Graine (vide = aléatoire)
+                <input type="number" id="imageSeed" min="0" max="2147483647" placeholder="Aléatoire">
+              </label>
             </div>
           </div>
           <div class="image-setting-wrap">

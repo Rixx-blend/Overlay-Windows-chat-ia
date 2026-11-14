@@ -714,6 +714,9 @@ const imageWidth = $('imageWidth');
 const imageHeight = $('imageHeight');
 const imageStyle = $('imageStyle');
 const imageSteps = $('imageSteps');
+const imageDenoise = $('imageDenoise');
+const imageSeed = $('imageSeed');
+imageDenoise.addEventListener('input', () => { $('denoiseValue').textContent = imageDenoise.value + ' %'; });
 imageFormat.addEventListener('change', () => {
   if (imageFormat.value === 'custom') return;
   const [w, h] = imageFormat.value.split('x').map(Number);
@@ -877,6 +880,8 @@ async function generateImageInChat(prompt, referenceImages = []) {
       width,
       height,
       steps: Number(imageSteps.value) || 25,
+      denoise: Number(imageDenoise.value) / 100,
+      seed: imageSeed.value.trim() === '' ? null : Math.round(Number(imageSeed.value)),
       referenceImages,
       edit: hasReference,
     });
