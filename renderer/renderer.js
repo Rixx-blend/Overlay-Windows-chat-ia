@@ -1,4 +1,4 @@
-const api = window.api;
+const bridge = window.api;
 const $ = (id) => document.getElementById(id);
 
 const card = $('card');
@@ -69,7 +69,7 @@ function scheduleClose() {
 }
 
 // Le processus principal indique si le curseur est sur la carte
-api.onHover((v) => {
+bridge.onHover((v) => {
   hovering = v;
   if (v) keepOpen();
   else scheduleClose();
@@ -78,7 +78,7 @@ api.onHover((v) => {
 // Le processus principal doit connaître la zone de la carte pour savoir où capter les clics
 new ResizeObserver(() => {
   const r = card.getBoundingClientRect();
-  api.cardRect({ x: r.left, y: r.top, w: r.width, h: r.height });
+  bridge.cardRect({ x: r.left, y: r.top, w: r.width, h: r.height });
 }).observe(card);
 input.addEventListener('focus', keepOpen);
 input.addEventListener('blur', scheduleClose);
@@ -105,10 +105,10 @@ send.addEventListener('click', submit);
 
 // ---------- Déplacement de la carte (suit le curseur) ----------
 card.addEventListener('pointerdown', (e) => {
-  api.focusWindow();
+  bridge.focusWindow();
   if (e.button !== 0 || e.target.closest('input, button, .menu, .chat, .tray, .panel')) return;
   dragging = true;
-  api.dragStart();
+  bridge.dragStart();
   card.setPointerCapture(e.pointerId);
 });
 card.addEventListener('pointermove', () => {
@@ -116,13 +116,13 @@ card.addEventListener('pointermove', () => {
   dragQueued = true;
   requestAnimationFrame(() => {
     dragQueued = false;
-    api.dragMove();
+    bridge.dragMove();
   });
 });
 function endDrag() {
   if (!dragging) return;
   dragging = false;
-  api.dragEnd();
+  bridge.dragEnd();
 }
 card.addEventListener('pointerup', endDrag);
 card.addEventListener('pointercancel', endDrag);
@@ -260,7 +260,7 @@ function startAI() {
   aiText = '';
   busy = true;
   send.classList.add('busy');
-  api.chat(messages, {
+  bridge.chat(messages, {
     engine: settings.engine,
     model: settings.model,
     level: settings.level,
@@ -268,14 +268,14 @@ function startAI() {
   });
 }
 
-api.onToken((t) => {
+bridge.onToken((t) => {
   if (!current) return;
   aiText += t;
   current.textContent = aiText;
   chat.scrollTop = chat.scrollHeight;
 });
 
-api.onDone((err) => {
+bridge.onDone((err) => {
   busy = false;
   send.classList.remove('busy');
   if (!current) return;
@@ -332,7 +332,7 @@ function proposeAction(raw) {
   yes.onclick = async () => {
     lock();
     yes.textContent = 'Exécution…';
-    const r = await api.runCommand(cmd);
+    const r = await bridge.runCommand(cmd);
     addBubble('sys', (r.ok ? 'Résultat :\n' : 'Échec :\n') + r.out);
     messages.push({ role: 'user', content: `Résultat de la commande "${cmd}" :\n${r.out}` });
     yes.textContent = 'Exécutée';
@@ -378,7 +378,7 @@ async function toggleMic() {
     mic.classList.add('busy');
     try {
       const blob = new Blob(chunks, { type: 'audio/webm' });
-      const text = await api.transcribe(await blob.arrayBuffer());
+      const text = await bridge.transcribe(await blob.arrayBuffer());
       input.value = (input.value ? input.value + ' ' : '') + text.trim();
     } catch {
       flash('Transcription impossible');
@@ -403,7 +403,7 @@ function renderMenu() {
     b.onclick = (e) => {
       e.stopPropagation();
       settings.model = m;
-      api.setSettings({ model: m });
+      bridge.setSettings({ model: m });
       menu.hidden = true;
       renderMenu();
       scheduleClose();
@@ -432,7 +432,7 @@ function markSeg(seg, value) {
 async function refreshOllama() {
   const el = $('ollamaStatus');
   try {
-    const s = await api.ollamaStatus();
+    const s = await bridge.ollamaStatus();
     el.textContent = s.running && s.hasModel
       ? 'Prête'
       : s.installed || s.running
@@ -449,7 +449,7 @@ function fillPanel() {
   $('autoUpd').checked = !!settings.autoUpdate;
   $('allowAct').checked = !!settings.allowActions;
   refreshOllama();
-  api.getVersion().then((v) => ($('version').textContent = v));
+  bridge.getVersion().then((v) => ($('version').textContent = v));
 }
 
 function openSettings() {
@@ -472,7 +472,7 @@ $('engineSeg').addEventListener('click', (e) => {
   const engine = b.dataset.v;
   settings.engine = engine;
   if (!MODELS[engine].includes(settings.model)) settings.model = MODELS[engine][0];
-  api.setSettings({ engine, model: settings.model });
+  bridge.setSettings({ engine, model: settings.model });
   markSeg($('engineSeg'), engine);
   renderMenu();
 });
@@ -481,18 +481,18 @@ $('levelSeg').addEventListener('click', (e) => {
   const b = e.target.closest('button');
   if (!b) return;
   settings.level = b.dataset.v;
-  api.setSettings({ level: settings.level });
+  bridge.setSettings({ level: settings.level });
   markSeg($('levelSeg'), settings.level);
 });
 
 $('autoUpd').addEventListener('change', (e) => {
   settings.autoUpdate = e.target.checked;
-  api.setSettings({ autoUpdate: settings.autoUpdate });
+  bridge.setSettings({ autoUpdate: settings.autoUpdate });
 });
 
 $('allowAct').addEventListener('change', (e) => {
   settings.allowActions = e.target.checked;
-  api.setSettings({ allowActions: settings.allowActions });
+  bridge.setSettings({ allowActions: settings.allowActions });
 });
 
 $('installAI').addEventListener('click', async () => {
@@ -500,7 +500,7 @@ $('installAI').addEventListener('click', async () => {
   btn.disabled = true;
   $('ollamaProg').textContent = 'Démarrage…';
   try {
-    $('ollamaProg').textContent = await api.installLocalAI();
+    $('ollamaProg').textContent = await bridge.installLocalAI();
   } catch (err) {
     $('ollamaProg').textContent = 'Erreur : ' + err.message;
   }
@@ -508,18 +508,18 @@ $('installAI').addEventListener('click', async () => {
   refreshOllama();
 });
 
-api.onOllamaProgress((t) => {
+bridge.onOllamaProgress((t) => {
   $('ollamaProg').textContent = t;
   if (/prête/i.test(t)) refreshOllama();
 });
 
 // ---------- Mises à jour ----------
 $('checkUpd').addEventListener('click', async () => {
-  const r = await api.checkUpdate();
+  const r = await bridge.checkUpdate();
   if (!r.ok) $('updStatus').textContent = r.message;
 });
 
-api.onUpdateStatus((s) => {
+bridge.onUpdateStatus((s) => {
   const el = $('updStatus');
   if (s.state === 'ready') {
     el.textContent = `Version ${s.version} prête.`;
@@ -536,10 +536,10 @@ api.onUpdateStatus((s) => {
   el.textContent = texts[s.state] || '';
 });
 
-$('restartUpd').addEventListener('click', () => api.installUpdate());
+$('restartUpd').addEventListener('click', () => bridge.installUpdate());
 
 // ---------- Glisser depuis la carte, focus depuis les raccourcis ----------
-api.onFocus(() => {
+bridge.onFocus(() => {
   keepOpen();
   input.focus();
 });
@@ -547,7 +547,7 @@ api.onFocus(() => {
 // ---------- Démarrage ----------
 (async function init() {
   try {
-    settings = { ...settings, ...(await api.getSettings()) };
+    settings = { ...settings, ...(await bridge.getSettings()) };
   } catch {
     /* valeurs par défaut */
   }
