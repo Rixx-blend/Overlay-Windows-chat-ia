@@ -26,7 +26,8 @@
     },
     "asarUnpack": [
       "**/uiohook-napi/**"
-    ]
+    ],
+    "npmRebuild": false
   },
   "dependencies": {
     "uiohook-napi": "^1.5.0"
