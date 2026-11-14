@@ -368,8 +368,8 @@ function submit() {
   // Les demandes qui manipulent le PC passent par Computer Use.
   const lancer = text.match(LAUNCH_RE);
   const simpleLaunch = !!lancer &&
-    !/\\b(?:et|puis|ensuite|dossier|fichier|t[ée]l[ée]chargements?|downloads?|bureau|documents?|images?|png|jpe?g|trouve|cherche|supprime|efface|clique|d[ée]place|renomme|copie|colle)\\b/i.test(lancer[2]);
-  const startsComputerTask = /^(?:peux[- ]tu\\s+)?(?:ouvre|ouvrir|lance|lancer|d[ée]marre|d[ée]marrer|trouve|chercher|cherche|recherche|supprime|supprimer|efface|effacer|clique|cliquer|d[ée]place|renomme|copie|colle)\\b/i.test(text);
+    !/\b(?:et|puis|ensuite|dossier|fichier|t[ée]l[ée]chargements?|downloads?|bureau|documents?|images?|png|jpe?g|trouve|cherche|supprime|efface|clique|d[ée]place|renomme|copie|colle)\b/i.test(lancer[2]);
+  const startsComputerTask = /^(?:peux[- ]tu\s+)?(?:ouvre|ouvrir|lance|lancer|d[ée]marre|d[ée]marrer|trouve|chercher|cherche|recherche|supprime|supprimer|efface|effacer|clique|cliquer|d[ée]place|renomme|copie|colle)\b/i.test(text);
   if (startsComputerTask && !simpleLaunch && !pending.length && settings.allowActions) {
     input.value = '';
     addBubble('user', text);
