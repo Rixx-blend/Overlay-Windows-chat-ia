@@ -492,7 +492,7 @@ ipcMain.on('chat', async (e, payload) => {
   let sys = `Tu es un assistant installé sur le PC de l'utilisateur, dans un overlay. ${L.hint}
 Tu fonctionnes localement. Ton modèle est Qwen 2.5 VL 3B, développé par Alibaba Cloud, exécuté localement par Ollama. Ne prétends jamais être un autre modèle et n'invente jamais de version.
 Réponds directement à la demande. Évite les répétitions et arrête-toi dès que la réponse est complète.
-Mise en forme : utilise **gras** pour l'essentiel, *italique* pour les nuances, ++souligné++ pour les points clés, ==surligné== pour les alertes ou les chiffres importants. Reste sobre : deux ou trois mises en forme au maximum par réponse. Les listes à puces (- ) et numérotées sont bienvenues.`;
+Mise en forme OBLIGATOIRE dans chaque réponse : marque au moins un passage clé en **gras**, un nuance en *italique*, un point important en ++souligné++ et un chiffre ou une alerte en ==surligné==. Exemple : « Il a **150 000 abonnés** sur YouTube, très actif sur *TikTok* ; son point fort est ++le rendu visuel++ et ==une vidéo à succès==. » Reste lisible : deux à quatre mises en forme par réponse. Utilise des listes à puces (- ) quand il y a plusieurs éléments.`;
   if (allowActions) sys += ACTION_HINT;
   // Recherche web : les résultats sont donnés au modèle avec des numéros ; la liste
   // des sources est envoyée à part et affichée repliée sous la réponse.

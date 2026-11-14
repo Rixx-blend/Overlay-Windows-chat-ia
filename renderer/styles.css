@@ -760,18 +760,18 @@ input::placeholder { color: rgba(30, 30, 36, 0.78); font-weight: 500; }
 
 /* Sources repliées sous la réponse : bloc arrondi, seulement les liens */
 details.sources {
-  margin-top: 8px;
-  padding: 6px 10px;
-  font-size: 12px;
+  margin: 8px 0 0;
+  padding: 5px 9px;
+  font-size: 10.5px;
   border-radius: 12px;
   background: rgba(255,255,255,.22);
   border: 1px solid rgba(255,255,255,.35);
 }
-details.sources > summary { cursor: pointer; opacity: .75; user-select: none; }
+details.sources > summary { cursor: pointer; opacity: .7; user-select: none; }
 details.sources > summary:hover { opacity: 1; }
 details.sources .source-link {
   display: block;
-  margin: 5px 0 1px;
+  margin: 4px 0 1px;
   color: inherit;
   opacity: .85;
   text-decoration: underline;
@@ -832,3 +832,6 @@ details.sources .source-link:hover { opacity: 1; }
 }
 .cutout-stage canvas { max-width: 100%; max-height: 100%; width: auto; height: auto; cursor: crosshair; touch-action: none; }
 .cutout-hint { opacity: .8; text-align: center; }
+
+/* Texte de la réponse : pas de retrait parasite ; la mise en forme gère les espaces */
+.msg.ai { white-space: normal; }

@@ -472,7 +472,7 @@ function renderMarkdown(text) {
     list = null;
   };
   for (const raw of text.split('\n')) {
-    const line = raw.trimEnd();
+    const line = raw.trim();
     const bullet = line.match(/^\s*[-•]\s+(.*)$/);
     const numbered = line.match(/^\s*\d+[.)]\s+(.*)$/);
     const heading = line.match(/^#{1,3}\s+(.*)$/);
