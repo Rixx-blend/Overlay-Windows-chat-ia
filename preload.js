@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld('api', {
   protect: (on) => ipcRenderer.invoke('protect', on),
   mouseIn: () => ipcRenderer.send('mouse-in'),
   mouseOut: () => ipcRenderer.send('mouse-out'),
+  focusWindow: () => ipcRenderer.send('focus-me'),
   hide: () => ipcRenderer.send('hide'),
   dragStart: () => ipcRenderer.send('drag-start'),
   dragMove: () => ipcRenderer.send('drag-move'),

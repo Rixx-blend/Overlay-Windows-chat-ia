@@ -68,16 +68,24 @@ function scheduleClose() {
   }, 300);
 }
 
-card.addEventListener('mouseenter', () => {
-  hovering = true;
-  api.mouseIn();
-  keepOpen();
-});
-card.addEventListener('mouseleave', () => {
-  hovering = false;
-  api.mouseOut();
-  scheduleClose();
-});
+// La fenêtre laisse passer les clics sauf sur la carte. On suit le curseur
+// (les mouvements sont transmis même quand la fenêtre est traversable).
+let over = false;
+function setOver(v) {
+  if (v === over) return;
+  if (!v && dragging) return;
+  over = v;
+  hovering = v;
+  if (v) {
+    api.mouseIn();
+    keepOpen();
+  } else {
+    api.mouseOut();
+    scheduleClose();
+  }
+}
+document.addEventListener('pointermove', (e) => setOver(!!e.target.closest('#card')));
+document.documentElement.addEventListener('mouseleave', () => setOver(false));
 input.addEventListener('focus', keepOpen);
 input.addEventListener('blur', scheduleClose);
 
@@ -103,6 +111,8 @@ send.addEventListener('click', submit);
 
 // ---------- Déplacement de la carte (suit le curseur) ----------
 card.addEventListener('pointerdown', (e) => {
+  api.mouseIn();
+  api.focusWindow();
   if (e.button !== 0 || e.target.closest('input, button, .menu, .chat, .tray, .panel')) return;
   dragging = true;
   api.dragStart();

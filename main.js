@@ -431,6 +431,9 @@ ipcMain.on('drag-end', () => {
 });
 ipcMain.on('mouse-in', () => win && win.setIgnoreMouseEvents(false));
 ipcMain.on('mouse-out', () => win && win.setIgnoreMouseEvents(true, { forward: true }));
+ipcMain.on('focus-me', () => {
+  if (win && !win.isDestroyed()) win.focus();
+});
 ipcMain.on('hide', () => win && win.hide());
 
 // Le renderer masque temporairement l'overlay des captures pour figer un fond propre
