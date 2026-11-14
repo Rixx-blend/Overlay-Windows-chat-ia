@@ -455,7 +455,7 @@ input::placeholder { color: rgba(30, 30, 36, 0.78); font-weight: 500; }
 .ibtn.busy { opacity: 0.5; }
 
 /* ---------- Pastilles du pied : logo du modèle et barres de réflexion ---------- */
-.pill .logo { width: 14px; height: 14px; border-radius: 4px; object-fit: contain; }
+.pill .logo { width: 14px; height: 14px; object-fit: contain; filter: brightness(0) opacity(0.85); }
 .pill .bars { width: 16px; height: 16px; fill: currentColor; stroke: none; }
 .pill .bars rect { transition: opacity 0.15s ease; }
 .pill .bars rect.off { opacity: 0.28; }
