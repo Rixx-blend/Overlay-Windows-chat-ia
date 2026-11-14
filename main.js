@@ -1477,7 +1477,9 @@ async function removeImageBackground(imagePath) {
   return {
     ok: true,
     path: destination,
+    sourcePath: resolved,
     dataUrl: 'data:image/png;base64,' + transparentPng.toString('base64'),
+    originalDataUrl: 'data:image/png;base64,' + original.toString('base64'),
   };
 }
 
@@ -1655,6 +1657,26 @@ ipcMain.handle('generate-image', async (_e, options) => {
     }
     scheduleComfyIdleShutdown();
   }
+});
+// Retouche manuelle du détourage : enregistre le PNG corrigé à côté de l'image source.
+ipcMain.handle('save-cutout', async (_e, payload) => {
+  try {
+    const source = getTrustedGeneratedImage(payload?.sourcePath);
+    const prefix = 'data:image/png;base64,';
+    const dataUrl = String(payload?.dataUrl || '');
+    if (!dataUrl.startsWith(prefix)) throw new Error('Image de retouche invalide.');
+    const buffer = Buffer.from(dataUrl.slice(prefix.length), 'base64');
+    if (buffer.length === 0 || buffer.length > 30 * 1024 * 1024) throw new Error('Taille de retouche invalide.');
+    const parsed = path.parse(source);
+    const destination = path.join(parsed.dir, parsed.name + '-retouche.png');
+    fs.writeFileSync(destination, buffer);
+    lastGeneratedImage = destination;
+    return {
+      ok: true,
+      path: destination,
+      dataUrl: prefix + buffer.toString('base64'),
+    };
+  } catch (error) { return { ok: false, message: error.message }; }
 });
 ipcMain.handle('remove-background', async (_e, imagePath) => {
   try {

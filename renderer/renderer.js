@@ -68,8 +68,11 @@ function keepOpen() {
   setOpen(true);
 }
 
+let cutoutEditorOpen = false;
+
 function canClose() {
   return (
+    !cutoutEditorOpen &&
     messages.length === 0 &&
     !input.value &&
     pending.length === 0 &&
@@ -1098,7 +1101,28 @@ async function removeBackgroundInChat(imagePath) {
     const caption = document.createElement('div');
     caption.className = 'generated-caption';
     caption.textContent = 'Fond supprimé · PNG avec transparence · non enregistré, utilise Enregistrer pour la télécharger';
-    resultBubble.replaceChildren(image, caption);
+    const retouchBtn = document.createElement('button');
+    retouchBtn.className = 'generated-action-btn';
+    retouchBtn.type = 'button';
+    retouchBtn.title = 'Retoucher le détourage';
+    retouchBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 5 5 5M4 20l4.5-1 10.8-10.8a2.1 2.1 0 0 0-3-3L5.5 16 4 20Z"/></svg><span>Retoucher</span>';
+    retouchBtn.addEventListener('click', () => {
+      openCutoutEditor({
+        sourcePath: result.sourcePath,
+        cutoutUrl: result.dataUrl,
+        originalUrl: result.originalDataUrl,
+        onSaved: (saved) => {
+          if (!saved?.dataUrl) return;
+          image.src = saved.dataUrl;
+          lastGeneratedImagePath = saved.path || lastGeneratedImagePath;
+          flash('Retouche enregistrée');
+        },
+      });
+    });
+    const actions = document.createElement('div');
+    actions.className = 'generated-actions';
+    actions.appendChild(retouchBtn);
+    resultBubble.replaceChildren(image, caption, actions);
     lastGeneratedImagePath = result.path || lastGeneratedImagePath;
     messages.push({ role: 'assistant', content: 'Arrière-plan supprimé. PNG transparent enregistré.' });
   } catch (err) {
@@ -1112,6 +1136,161 @@ async function removeBackgroundInChat(imagePath) {
     chat.scrollTop = chat.scrollHeight;
     scheduleClose();
   }
+}
+
+// ---------- Retouche manuelle du détourage ----------
+// Pinceau « Effacer » (rend transparent) et « Restaurer » (remet le pixel d'origine).
+// Le résultat est enregistré dans la session puis envoyé au processus principal.
+async function openCutoutEditor({ sourcePath, cutoutUrl, originalUrl, onSaved }) {
+  if (cutoutEditorOpen || !cutoutUrl || !originalUrl) return;
+  cutoutEditorOpen = true;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'cutout-editor';
+  overlay.innerHTML = `
+    <div class="cutout-toolbar">
+      <button type="button" class="pill" data-mode="erase">Effacer</button>
+      <button type="button" class="pill" data-mode="restore">Restaurer</button>
+      <input type="range" class="cutout-size" min="4" max="120" value="28" title="Taille du pinceau">
+      <button type="button" class="pill" data-act="cancel">Annuler</button>
+      <button type="button" class="pill" data-act="apply">Appliquer</button>
+    </div>
+    <div class="cutout-stage"><canvas></canvas></div>
+    <div class="cutout-hint">Passe sur le décor restant pour l'effacer. « Restaurer » remet une partie du sujet.</div>`;
+  document.body.appendChild(overlay);
+
+  const canvas = overlay.querySelector('canvas');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const sizeInput = overlay.querySelector('.cutout-size');
+  let mode = 'erase';
+  let drawing = false;
+  let last = null;
+
+  const close = () => {
+    overlay.remove();
+    cutoutEditorOpen = false;
+    scheduleClose();
+  };
+  const loadImage = (src) => new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('Image illisible'));
+    img.src = src;
+  });
+
+  let cut, orig;
+  try {
+    [cut, orig] = await Promise.all([loadImage(cutoutUrl), loadImage(originalUrl)]);
+  } catch (err) {
+    close();
+    flash('Retouche impossible : ' + err.message);
+    return;
+  }
+
+  const width = cut.naturalWidth;
+  const height = cut.naturalHeight;
+  canvas.width = width;
+  canvas.height = height;
+  const readPixels = (img) => {
+    const probe = document.createElement('canvas');
+    probe.width = width;
+    probe.height = height;
+    const pctx = probe.getContext('2d', { willReadFrequently: true });
+    pctx.drawImage(img, 0, 0, width, height);
+    return pctx.getImageData(0, 0, width, height).data;
+  };
+  const cutPixels = readPixels(cut);
+  const origPixels = readPixels(orig);
+  const alpha = new Uint8ClampedArray(width * height);
+  for (let i = 0; i < alpha.length; i++) alpha[i] = cutPixels[i * 4 + 3];
+  const frame = ctx.createImageData(width, height);
+
+  const render = () => {
+    const out = frame.data;
+    for (let i = 0; i < alpha.length; i++) {
+      const p = i * 4;
+      out[p] = origPixels[p];
+      out[p + 1] = origPixels[p + 1];
+      out[p + 2] = origPixels[p + 2];
+      out[p + 3] = alpha[i];
+    }
+    ctx.putImageData(frame, 0, 0);
+  };
+  render();
+
+  const stamp = (cx, cy) => {
+    const rect = canvas.getBoundingClientRect();
+    const scale = width / rect.width;
+    const radius = (Number(sizeInput.value) / 2) * scale;
+    const x0 = Math.max(0, Math.floor(cx - radius));
+    const x1 = Math.min(width - 1, Math.ceil(cx + radius));
+    const y0 = Math.max(0, Math.floor(cy - radius));
+    const y1 = Math.min(height - 1, Math.ceil(cy + radius));
+    const value = mode === 'erase' ? 0 : 255;
+    for (let y = y0; y <= y1; y++) {
+      for (let x = x0; x <= x1; x++) {
+        const dx = x - cx;
+        const dy = y - cy;
+        if (dx * dx + dy * dy <= radius * radius) alpha[y * width + x] = value;
+      }
+    }
+  };
+  const toImageCoords = (e) => {
+    const rect = canvas.getBoundingClientRect();
+    return [
+      (e.clientX - rect.left) * (width / rect.width),
+      (e.clientY - rect.top) * (height / rect.height),
+    ];
+  };
+  const strokeTo = (cx, cy) => {
+    if (!last) {
+      stamp(cx, cy);
+    } else {
+      const [lx, ly] = last;
+      const distance = Math.hypot(cx - lx, cy - ly);
+      const steps = Math.max(1, Math.ceil(distance / 2));
+      for (let i = 1; i <= steps; i++) {
+        stamp(lx + ((cx - lx) * i) / steps, ly + ((cy - ly) * i) / steps);
+      }
+    }
+    last = [cx, cy];
+    render();
+  };
+
+  canvas.addEventListener('pointerdown', (e) => {
+    drawing = true;
+    last = null;
+    canvas.setPointerCapture(e.pointerId);
+    strokeTo(...toImageCoords(e));
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    if (drawing) strokeTo(...toImageCoords(e));
+  });
+  const endStroke = () => { drawing = false; last = null; };
+  canvas.addEventListener('pointerup', endStroke);
+  canvas.addEventListener('pointercancel', endStroke);
+
+  overlay.querySelectorAll('[data-mode]').forEach((button) => {
+    button.addEventListener('click', () => {
+      mode = button.dataset.mode;
+      overlay.querySelectorAll('[data-mode]').forEach((b) => b.classList.toggle('active', b === button));
+    });
+  });
+  overlay.querySelector('[data-mode="erase"]').classList.add('active');
+  overlay.querySelector('[data-act="cancel"]').addEventListener('click', close);
+  overlay.querySelector('[data-act="apply"]').addEventListener('click', async () => {
+    const applyButton = overlay.querySelector('[data-act="apply"]');
+    applyButton.disabled = true;
+    try {
+      const saved = await bridge.saveCutout({ sourcePath, dataUrl: canvas.toDataURL('image/png') });
+      if (!saved?.ok) throw new Error(saved?.message || 'enregistrement impossible');
+      close();
+      onSaved(saved);
+    } catch (err) {
+      applyButton.disabled = false;
+      flash('Retouche impossible : ' + err.message);
+    }
+  });
 }
 
 function closeSettings() {
