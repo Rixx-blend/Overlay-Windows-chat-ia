@@ -29,6 +29,10 @@ const PLACEHOLDER = "Demander n'importe quoi...";
 let imageMode = false;
 let imageProgressLabel = null;
 let lastGeneratedImagePath = null;
+let lastGeneratedImageDataUrl = null;
+let editReferenceDataUrl = null;
+let references = [];
+let dragDepth = 0;
 const MAX_IMAGE = 8 * 1024 * 1024;
 const MAX_TEXT = 200 * 1024;
 const TEXT_EXT = /\.(txt|md|csv|tsv|json|js|jsx|ts|tsx|py|html|css|xml|ya?ml|ini|log|bat|ps1|cfg|java|c|cpp|h|cs|go|rs|sql)$/i;
@@ -193,16 +197,87 @@ attach.addEventListener('click', () => file.click());
 file.addEventListener('change', async () => {
   const files = [...file.files];
   file.value = '';
-  for (const f of files) {
+  await addFiles(files, false);
+});
+
+async function addFiles(files, asReferences = false) {
+  for (const f of [...files]) {
     try {
-      pending.push(await readAttachment(f));
-    } catch (err) {
-      flash(err.message);
-    }
+      const attachment = await readAttachment(f);
+      if (asReferences) {
+        if (attachment.kind !== 'image') throw new Error('Les références doivent être des images.');
+        if (references.length >= 4) throw new Error('4 images de référence maximum.');
+        references.push(attachment);
+      } else {
+        pending.push(attachment);
+      }
+    } catch (err) { flash(err.message); }
   }
   renderTray();
+  renderReferences();
   keepOpen();
+}
+
+function renderReferences() {
+  const wrap = $('referencePreviews');
+  if (!wrap) return;
+  wrap.replaceChildren();
+  $('referenceCount').textContent = references.length
+    ? references.length + ' référence' + (references.length > 1 ? 's' : '')
+    : 'Aucune référence';
+  references.forEach((ref, index) => {
+    const img = document.createElement('img');
+    img.src = ref.url;
+    img.alt = ref.name;
+    img.title = ref.name;
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.textContent = '×';
+    remove.title = 'Retirer la référence';
+    remove.addEventListener('click', () => { references.splice(index, 1); renderReferences(); });
+    const item = document.createElement('div');
+    item.className = 'reference-thumb';
+    item.append(img, remove);
+    wrap.appendChild(item);
+  });
+}
+
+const referenceFiles = $('referenceFiles');
+$('addImageReference').addEventListener('click', () => referenceFiles.click());
+referenceFiles.addEventListener('change', async () => {
+  const files = [...referenceFiles.files];
+  referenceFiles.value = '';
+  await addFiles(files, true);
 });
+
+async function handleDropFiles(files) {
+  if (!files.length) return;
+  const imageOnly = imageMode && files.every((f) => f.type.startsWith('image/'));
+  await addFiles(files, imageOnly);
+}
+[card, chat].forEach((target) => {
+  target.addEventListener('dragenter', (e) => {
+    if (![...e.dataTransfer.types].includes('Files')) return;
+    e.preventDefault();
+    dragDepth++;
+    card.classList.add('file-drag-over');
+    keepOpen();
+  });
+  target.addEventListener('dragover', (e) => {
+    if ([...e.dataTransfer.types].includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }
+  });
+  target.addEventListener('dragleave', (e) => {
+    if (!card.contains(e.relatedTarget)) { dragDepth = 0; card.classList.remove('file-drag-over'); }
+  });
+  target.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    dragDepth = 0;
+    card.classList.remove('file-drag-over');
+    await handleDropFiles(e.dataTransfer.files);
+  });
+});
+window.addEventListener('dragover', (e) => { if ([...e.dataTransfer.types].includes('Files')) e.preventDefault(); });
+window.addEventListener('drop', (e) => { if ([...e.dataTransfer.types].includes('Files')) e.preventDefault(); });
 
 function renderTray() {
   tray.replaceChildren();
@@ -308,9 +383,16 @@ function submit() {
   input.value = '';
   pending = [];
   renderTray();
-  if (imagePrompt !== null) {
+  if (imageMode || imagePrompt !== null) {
+    const prompt = imagePrompt || text || 'Créer une image à partir des références fournies';
+    const refs = [
+      ...references.map((ref) => ref.url),
+      ...atts.filter((a) => a.kind === 'image').map((a) => a.url),
+    ];
+    references = [];
+    renderReferences();
     setImageMode(false);
-    generateImageInChat(imagePrompt || text);
+    generateImageInChat(prompt, refs);
     return;
   }
   startAI();
@@ -456,6 +538,8 @@ newchat.addEventListener('click', () => {
   if (busy) return;
   messages = [];
   pending = [];
+  references = [];
+  renderReferences();
   chat.replaceChildren();
   chat.classList.remove('has');
   renderTray();
@@ -641,7 +725,7 @@ imageFormat.addEventListener('change', () => {
 }));
 imageModeBtn.addEventListener('click', () => setImageMode(!imageMode));
 
-async function generateImageInChat(prompt) {
+async function generateImageInChat(prompt, referenceImages = []) {
   const cleanPrompt = String(prompt || '').trim();
   if (!cleanPrompt || busy) return;
   busy = true;
@@ -677,6 +761,8 @@ async function generateImageInChat(prompt) {
       width,
       height,
       steps: Number(imageSteps.value) || 25,
+      referenceImages,
+      edit: referenceImages.length > 0,
     });
     if (!generated?.dataUrl) throw new Error('ComfyUI n’a renvoyé aucune image.');
     if (stopLoader) { stopLoader(); stopLoader = null; }
@@ -686,20 +772,41 @@ async function generateImageInChat(prompt) {
     image.alt = 'Image générée : ' + cleanPrompt;
     image.src = generated.dataUrl;
     lastGeneratedImagePath = generated.path || null;
+    lastGeneratedImageDataUrl = generated.dataUrl;
     const caption = document.createElement('div');
     caption.className = 'generated-caption';
     caption.textContent = 'Image générée avec SDXL · enregistrée dans Images/OverlayIA';
     const actions = document.createElement('div');
     actions.className = 'generated-actions';
-    const removeBg = document.createElement('button');
-    removeBg.className = 'generated-action-btn';
-    removeBg.type = 'button';
-    removeBg.textContent = 'Supprimer le fond';
-    removeBg.disabled = !lastGeneratedImagePath;
-    removeBg.addEventListener('click', () => {
-      if (lastGeneratedImagePath) removeBackgroundInChat(lastGeneratedImagePath);
+    const makeAction = (label, handler, disabled = false) => {
+      const button = document.createElement('button');
+      button.className = 'generated-action-btn';
+      button.type = 'button';
+      button.textContent = label;
+      button.disabled = disabled;
+      button.addEventListener('click', handler);
+      actions.appendChild(button);
+    };
+    makeAction('Télécharger', async () => {
+      const result = await bridge.saveGeneratedImage(lastGeneratedImagePath);
+      if (!result?.ok && result?.message) flash(result.message);
+    }, !lastGeneratedImagePath);
+    makeAction('Copier', async () => {
+      const result = await bridge.copyGeneratedImage(lastGeneratedImagePath);
+      flash(result?.ok ? 'Image copiée' : (result?.message || 'Copie impossible'));
+    }, !lastGeneratedImagePath);
+    makeAction('Modifier', () => {
+      editReferenceDataUrl = lastGeneratedImageDataUrl;
+      references = [{ name: 'Image à modifier', kind: 'image', url: lastGeneratedImageDataUrl }];
+      renderReferences();
+      setImageMode(true);
+      input.value = '';
+      input.placeholder = 'Décris les modifications à apporter…';
+      input.focus();
     });
-    actions.appendChild(removeBg);
+    makeAction('Supprimer le fond', () => {
+      if (lastGeneratedImagePath) removeBackgroundInChat(lastGeneratedImagePath);
+    }, !lastGeneratedImagePath);
     current.replaceChildren(image, caption, actions);
     messages.push({ role: 'assistant', content: 'Image générée avec succès.' });
   } catch (err) {
