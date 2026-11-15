@@ -43,6 +43,8 @@ user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
 user32.GetWindowTextLengthW.restype = ctypes.c_int
 user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
 user32.GetWindowTextW.restype = ctypes.c_int
+user32.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+user32.GetClassNameW.restype = ctypes.c_int
 user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.c_void_p]
 user32.GetWindowRect.restype = wintypes.BOOL
 kernel32.GetCurrentThreadId.restype = wintypes.DWORD
@@ -130,6 +132,24 @@ def _find_window(title_fragment):
         buffer = ctypes.create_unicode_buffer(length + 1)
         user32.GetWindowTextW(hwnd, buffer, length + 1)
         if title_fragment.casefold() in buffer.value.casefold():
+            matches.append(hwnd)
+        return True
+
+    user32.EnumWindows(enum_callback, 0)
+    return matches[0] if matches else None
+
+
+def _find_explorer_window():
+    """Find Explorer by its native window class, regardless of the current folder title."""
+    matches = []
+
+    @EnumWindowsProc
+    def enum_callback(hwnd, _):
+        if not user32.IsWindowVisible(hwnd):
+            return True
+        class_buffer = ctypes.create_unicode_buffer(256)
+        user32.GetClassNameW(hwnd, class_buffer, len(class_buffer))
+        if class_buffer.value in {"CabinetWClass", "ExploreWClass"}:
             matches.append(hwnd)
         return True
 
@@ -322,16 +342,17 @@ def launch_app(name):
         time.sleep(1.2)
         return "Paramètres Windows ouverts sur Système > Informations système."
     if name == "Explorateur de fichiers":
+        hwnd = _find_explorer_window()
+        if hwnd and _force_foreground(hwnd):
+            return "Fenêtre Explorateur existante activée."
         subprocess.Popen(["explorer.exe"], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         deadline = time.monotonic() + 8
         while time.monotonic() < deadline:
-            for title in ("Explorateur de fichiers", "File Explorer", "Ce PC", "This PC", "Accueil", "Home"):
-                hwnd = _find_window(title)
-                if hwnd and _force_foreground(hwnd):
-                    return "Explorateur Windows ouvert et fenêtre activée."
+            hwnd = _find_explorer_window()
+            if hwnd and _force_foreground(hwnd):
+                return "Explorateur Windows ouvert et fenêtre activée."
             time.sleep(0.25)
-        # Explorer peut afficher le nom du dossier sans le libellé « Explorateur ».
-        raise RuntimeError("Explorateur lancé, mais sa fenêtre n'a pas pu être activée.")
+        raise RuntimeError("Explorateur lancé, mais aucune fenêtre CabinetWClass/ExploreWClass n'a pu être activée.")
     escaped = name.replace("'", "''")
     script = (
         "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(); $OutputEncoding = [Console]::OutputEncoding; "
