@@ -135,6 +135,9 @@ def main():
             if stop_event.is_set():
                 break
             try:
+                if action in {"left_click", "double_click", "right_click", "scroll"}:
+                    emit("cursor", x=round(float(decision.get("x", 0)) * shot["screen_width"] / 1000),
+                         y=round(float(decision.get("y", 0)) * shot["screen_height"] / 1000))
                 result = execute(decision, confirm)
                 save_debug_capture(shot["image"], log_dir, decision)
                 history.append("Action " + str(step) + " : " + str(action) + " ; résultat : " + result)
@@ -164,6 +167,7 @@ def main():
         emit("history", item={"time": datetime.now(timezone.utc).isoformat(), "type": "error", "detail": str(exc)[:500]})
         emit("status", active=False, message="Computer Use : " + str(exc)[:500], error=True)
     finally:
+        emit("cursor_hide")
         stop_event.set()
         try:
             listener.stop()
