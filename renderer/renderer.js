@@ -53,6 +53,7 @@ const LEVEL_ORDER = ['low', 'high', 'max'];
 let busy = false;
 let activeComputerBubble = null;
 let activeComputerLoader = null;
+let activeComputerMainLabel = null;
 let activeComputerFeed = null;
 let recorder = null;
 let transcribing = false;
@@ -449,7 +450,7 @@ function makeLoader(label) {
     time.textContent = s < 60 ? s.toFixed(1) + 's' : `${Math.floor(s / 60)}m ${(s % 60).toFixed(1)}s`;
   }, 100);
   wrap.append(grid, text, time);
-  return { el: wrap, stop: () => clearInterval(tick) };
+  return { el: wrap, label: text, stop: () => clearInterval(tick) };
 }
 
 let stopLoader = null;
@@ -1203,8 +1204,8 @@ function computerActivityLabel(item) {
   if (type === 'scroll') return 'Parcourt le contenu affiché';
   if (type === 'find_latest_file') return 'Recherche un fichier';
   if (type === 'open_file') return 'Ouvre un fichier';
-  if (type === 'done') return 'Tâche déclarée terminée';
-  if (type === 'error') return 'Une action a échoué';
+  if (type === 'done') return 'Tâche terminée';
+  if (type === 'error') return 'Échec de la tâche';
   if (type === 'replan') return 'Corrige son plan d’action';
   if (type === 'status') return detail;
   return detail || 'Activité en cours';
@@ -1260,6 +1261,7 @@ function startComputerActivityBubble(label) {
   shell.className = 'computer-live';
   const loader = makeLoader(label);
   activeComputerLoader = loader.stop;
+  activeComputerMainLabel = loader.label;
   activeComputerFeed = document.createElement('div');
   activeComputerFeed.className = 'computer-live-feed';
   shell.append(loader.el, activeComputerFeed);
@@ -1291,12 +1293,15 @@ bridge.onComputerUseStatus((state) => {
   }
   if (!state.active) {
     if (activeComputerLoader) activeComputerLoader();
-    activeComputerLoader = null; activeComputerFeed = null; activeComputerBubble = null;
+    activeComputerLoader = null; activeComputerMainLabel = null; activeComputerFeed = null; activeComputerBubble = null;
   }
 });
 bridge.onComputerUseHistory((item) => {
   addComputerHistory(item);
   appendComputerActivity(item);
+  const type = String(item.type || '').toLowerCase();
+  if (activeComputerMainLabel && type === 'done') activeComputerMainLabel.textContent = 'Tâche terminée';
+  if (activeComputerMainLabel && type === 'error') activeComputerMainLabel.textContent = 'Tâche interrompue : erreur';
 });
 bridge.onComputerUseConfirmation(async (request) => {
   const approved = window.confirm('L’IA demande une validation avant cette action :\n\n' + request.reason + '\n\nAutoriser cette action ?');
