@@ -57,8 +57,15 @@ def _uia_invoke(element):
             return
         except Exception:
             continue
+    # Text areas and many custom controls are focusable but do not expose Invoke.
+    # Set keyboard focus without moving or clicking the user's physical mouse.
+    try:
+        element.set_focus()
+        return
+    except Exception:
+        pass
     raise RuntimeError(
-        "Ce contrôle ne fournit aucun pattern UI Automation cliquable. "
+        "Ce contrôle ne fournit aucun pattern UI Automation cliquable ou focalisable. "
         "L'action est arrêtée plutôt que de déplacer ta souris physique."
     )
 
