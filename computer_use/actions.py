@@ -105,6 +105,56 @@ def _activate_existing_window(title_fragment):
     time.sleep(0.8)
     return user32.GetForegroundWindow() == hwnd
 
+def _app_title_aliases(name):
+    folded = str(name or "").casefold()
+    if any(token in folded for token in ("bloc-notes", "bloc notes", "notepad")):
+        return ("Bloc-notes", "Notepad")
+    if any(token in folded for token in ("calculatrice", "calculator")):
+        return ("Calculatrice", "Calculator")
+    if "chrome" in folded:
+        return ("Google Chrome",)
+    if "edge" in folded:
+        return ("Microsoft Edge",)
+    return (str(name or "").strip(),)
+
+
+def _activate_app_window(name, timeout=15):
+    aliases = _app_title_aliases(name)
+    deadline = time.monotonic() + timeout
+    user32 = ctypes.windll.user32
+    while time.monotonic() < deadline:
+        for title in aliases:
+            hwnd = _find_window(title)
+            if not hwnd:
+                continue
+            if user32.IsIconic(hwnd):
+                user32.ShowWindow(hwnd, 9)
+            user32.SetForegroundWindow(hwnd)
+            time.sleep(0.25)
+            if user32.GetForegroundWindow() == hwnd:
+                return title
+        time.sleep(0.25)
+    return None
+
+
+def _foreground_title():
+    user32 = ctypes.windll.user32
+    hwnd = user32.GetForegroundWindow()
+    if not hwnd:
+        return ""
+    buffer = ctypes.create_unicode_buffer(512)
+    user32.GetWindowTextW(hwnd, buffer, len(buffer))
+    return buffer.value
+
+
+def _require_expected_app(expected_app):
+    if not expected_app:
+        return
+    title = _foreground_title().casefold()
+    expected = expected_app if isinstance(expected_app, (list, tuple, set)) else (expected_app,)
+    if not any(str(name).casefold() in title for name in expected):
+        raise RuntimeError("Saisie bloquée : la fenêtre active n'est pas l'application demandée. Fenêtre active : " + (title or "inconnue"))
+
 
 def _wait_for_blender_ready(timeout=90):
     """Wait for Blender's actual top-level window, focus it, then allow its UI to settle."""
@@ -130,6 +180,10 @@ def launch_app(name):
     if not name:
         raise ValueError("Nom d'application manquant.")
     is_blender = "blender" in name.casefold()
+    if not is_blender:
+        already_active = _activate_app_window(name, timeout=1)
+        if already_active:
+            return "Fenêtre existante activée et focus vérifié : " + already_active
     if is_blender and _find_window("Blender"):
         _wait_for_blender_ready()
         return "Fenêtre Blender existante réactivée ; chargement de l'interface attendu et focus vérifié."
@@ -158,7 +212,11 @@ def launch_app(name):
     if is_blender:
         _wait_for_blender_ready()
         return launch_message + " ; fenêtre Blender détectée, chargement de l'interface terminé et focus vérifié."
-    return launch_message
+    activated = _activate_app_window(name, timeout=15)
+    if activated:
+        return launch_message + " ; fenêtre activée et focus vérifié : " + activated
+    aliases = ", ".join(_app_title_aliases(name))
+    raise RuntimeError("Application lancée, mais impossible de confirmer sa fenêtre active (" + aliases + "). Saisie bloquée pour éviter d'écrire dans une autre application.")
 
 
 def _normalize_folder_name(value):
@@ -246,20 +304,48 @@ def find_latest_file(folder, extension):
         raise ValueError("Extension invalide.")
     if not root.exists():
         raise FileNotFoundError("Dossier introuvable : " + str(root))
+    roots = [root]
+    if registry_name == "Downloads":
+        home = Path.home()
+        alternatives = [
+            home / "Downloads", home / "Téléchargements", home / "Telechargements",
+            home / "OneDrive" / "Downloads", home / "OneDrive" / "Téléchargements",
+            home / "OneDrive" / "Telechargements",
+        ]
+        for env_name in ("OneDrive", "OneDriveConsumer"):
+            one_drive = os.environ.get(env_name)
+            if one_drive:
+                alternatives.extend(Path(one_drive) / name for name in ("Downloads", "Téléchargements", "Telechargements"))
+        roots.extend(path for path in alternatives if path.exists())
+    unique_roots = []
+    seen_roots = set()
+    for candidate_root in roots:
+        key_root = os.path.normcase(os.path.abspath(str(candidate_root)))
+        if key_root not in seen_roots:
+            seen_roots.add(key_root)
+            unique_roots.append(candidate_root)
+    # Open the actual folder in Explorer as requested, without using it as a source
+    # of truth for the file listing.
+    try:
+        os.startfile(str(root))
+    except Exception:
+        pass
     newest = None
-    for current, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if d.lower() not in {"node_modules", ".git", "$recycle.bin"}]
-        for filename in files:
-            if filename.lower().endswith(ext):
-                candidate = Path(current) / filename
-                try:
-                    modified = candidate.stat().st_mtime
-                except OSError:
-                    continue
-                if newest is None or modified > newest[0]:
-                    newest = (modified, candidate)
+    for search_root in unique_roots:
+        for current, dirs, files in os.walk(search_root):
+            dirs[:] = [d for d in dirs if d.lower() not in {"node_modules", ".git", "$recycle.bin"}]
+            for filename in files:
+                if filename.lower().endswith(ext):
+                    candidate = Path(current) / filename
+                    try:
+                        modified = candidate.stat().st_mtime
+                    except OSError:
+                        continue
+                    if newest is None or modified > newest[0]:
+                        newest = (modified, candidate)
     if newest is None:
-        raise FileNotFoundError("Aucun fichier trouvé dans " + str(root) + (" avec l’extension " + ext if ext != "*" else ""))
+        searched = " ; ".join(str(item) for item in unique_roots)
+        raise FileNotFoundError("Aucun fichier trouvé dans les dossiers Téléchargements vérifiés : " + searched)
     return str(newest[1])
 
 
@@ -300,7 +386,7 @@ def _send_windows_hotkey(keys):
         user32.keybd_event(vk, 0, 2, 0)
 
 
-def execute(action, confirm):
+def execute(action, confirm, expected_app=None):
     kind = action.get("action")
     if kind == "open_url":
         url = str(action.get("url") or "").strip()[:2048]
@@ -327,6 +413,7 @@ def execute(action, confirm):
         # Send Unicode keystrokes to the currently focused application. This works
         # in standard edit controls, WinUI/UWP apps and custom fields that expose
         # no UIA ValuePattern. It does not move the user's physical mouse.
+        _require_expected_app(expected_app)
         user32 = ctypes.windll.user32
         if not user32.GetForegroundWindow():
             raise RuntimeError("Aucune fenêtre active pour recevoir le texte.")
@@ -362,10 +449,29 @@ def execute(action, confirm):
                         raise RuntimeError("Windows a refusé l'envoi d'une touche Unicode au champ actif.")
                     sent += 1
         return "Texte saisi par événements clavier Unicode Windows (" + str(len(value)) + " caractères)."
+    if kind == "calculate":
+        expression = str(action.get("expression") or "").strip()
+        import re
+        match = re.fullmatch(r"(\\d{1,12})\\s*([+×xX*÷/−-])\\s*(\\d{1,12})", expression)
+        if not match:
+            raise ValueError("Calcul refusé : expression arithmétique simple attendue.")
+        _require_expected_app(("Calculatrice", "Calculator"))
+        left, operator, right = match.groups()
+        operator_keys = {"+": 0x6B, "×": 0x6A, "x": 0x6A, "X": 0x6A,
+                         "*": 0x6A, "÷": 0x6F, "/": 0x6F, "−": 0x6D, "-": 0x6D}
+        user32 = ctypes.windll.user32
+        sequence = [0x60 + int(digit) for digit in left] + [operator_keys[operator]] + [0x60 + int(digit) for digit in right] + [0x0D]
+        for vk in sequence:
+            user32.keybd_event(vk, 0, 0, 0)
+            time.sleep(0.025)
+            user32.keybd_event(vk, 0, 0x0002, 0)
+            time.sleep(0.035)
+        return "Calcul envoyé à la Calculatrice : " + expression + " ; résultat à vérifier sur la capture suivante."
     if kind == "hotkey":
         keys = action.get("keys")
         if not isinstance(keys, list) or not keys:
             raise ValueError("Liste de touches invalide.")
+        _require_expected_app(expected_app)
         normalized = [str(k).lower() for k in keys]
         if any(k not in ALLOWED_KEYS for k in normalized):
             raise ValueError("Raccourci clavier non autorisé.")
