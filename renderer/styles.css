@@ -54,6 +54,10 @@ html, body {
   padding: 14px 14px 12px 22px;
 }
 
+/* Une carte repliée ne conserve jamais l'historique : évite qu'un grand panneau
+   garde le rayon de 999 px et se transforme en lentille circulaire. */
+.card:not(.open) .chat { display: none !important; }
+
 .chat, .row, .footer { position: relative; z-index: 2; }
 
 /* ---------- Historique ---------- */
