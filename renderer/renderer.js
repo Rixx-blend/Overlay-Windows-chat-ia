@@ -1215,15 +1215,41 @@ function appendComputerActivity(item) {
   row.className = 'computer-live-item';
   const mark = document.createElement('span');
   mark.className = 'computer-live-mark';
-  const body = document.createElement('span');
+  const body = document.createElement('div');
   body.className = 'computer-live-copy';
+  const head = document.createElement('div');
+  head.className = 'computer-live-head';
   const title = document.createElement('strong');
   title.textContent = computerActivityLabel(item);
-  const detail = document.createElement('span');
-  detail.className = 'computer-live-detail';
-  detail.textContent = String(item.detail || '').slice(0, 220);
-  body.append(title);
-  if (detail.textContent && detail.textContent !== title.textContent) body.append(detail);
+  head.append(title);
+
+  const detailText = String(item.detail || '').trim();
+  const disclosure = document.createElement('button');
+  disclosure.type = 'button';
+  disclosure.className = 'computer-live-expand';
+  disclosure.setAttribute('aria-expanded', 'false');
+  disclosure.setAttribute('aria-label', 'Déplier les détails de cette activité');
+  disclosure.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg>';
+
+  const detail = document.createElement('div');
+  detail.className = 'computer-live-expanded';
+  detail.hidden = true;
+  const detailLabel = document.createElement('span');
+  detailLabel.className = 'computer-live-expanded-label';
+  detailLabel.textContent = 'Détails de l’activité';
+  const detailContent = document.createElement('p');
+  detailContent.textContent = detailText || 'Aucun détail supplémentaire transmis pour cette étape.';
+  detail.append(detailLabel, detailContent);
+
+  disclosure.addEventListener('click', () => {
+    const expanded = disclosure.getAttribute('aria-expanded') !== 'true';
+    disclosure.setAttribute('aria-expanded', String(expanded));
+    disclosure.setAttribute('aria-label', expanded ? 'Replier les détails de cette activité' : 'Déplier les détails de cette activité');
+    detail.hidden = !expanded;
+    row.classList.toggle('is-expanded', expanded);
+  });
+  head.append(disclosure);
+  body.append(head, detail);
   row.append(mark, body);
   activeComputerFeed.prepend(row);
   while (activeComputerFeed.children.length > 8) activeComputerFeed.lastElementChild.remove();
