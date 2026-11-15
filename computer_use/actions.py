@@ -579,6 +579,7 @@ def _open_images_large_icons():
 def _get_top_memory_apps():
     """Return the three visible desktop applications with the largest working sets."""
     script = (
+        "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(); $OutputEncoding = [Console]::OutputEncoding; "
         "$ErrorActionPreference='Stop'; "
         "$rows = Get-Process | Where-Object { $_.MainWindowHandle -ne 0 } | "
         "Group-Object ProcessName | ForEach-Object { "
