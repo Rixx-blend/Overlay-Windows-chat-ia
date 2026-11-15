@@ -617,21 +617,6 @@ def execute(action, confirm, expected_app=None):
     if kind == "done":
         return str(action.get("thought") or "Tâche terminée.")
     raise ValueError("Action inconnue ou interdite : " + str(kind))
-    result = subprocess.run(
-        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
-        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-    )
-    if result.returncode:
-        raise RuntimeError((result.stderr or result.stdout or "Lancement impossible.").strip()[:500])
-    launch_message = (result.stdout or "Lancement demandé.").strip()
-    if is_blender:
-        _wait_for_blender_ready()
-        return launch_message + " ; fenêtre Blender détectée, chargement de l'interface terminé et focus vérifié."
-    activated = _activate_app_window(name, timeout=15)
-    if activated:
-        return launch_message + " ; fenêtre activée et focus vérifié : " + activated
-    aliases = ", ".join(_app_title_aliases(name))
-    raise RuntimeError("Application lancée, mais impossible de confirmer sa fenêtre active (" + aliases + "). Saisie bloquée pour éviter d'écrire dans une autre application.")
 
 
 def _normalize_folder_name(value):
