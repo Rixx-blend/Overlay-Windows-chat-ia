@@ -98,6 +98,7 @@ def main():
     calculator_opened = False
     calculator_sent = False
     recent_download_path = None
+    recent_download_opened = False
     cursor_initialized = False
     last_open_app = ""
     repeated_open_app_count = 0
@@ -157,7 +158,7 @@ def main():
                             "thought": "Recherche du fichier le plus récent dans le dossier Téléchargements Windows."}
                 action = decision["action"]
                 thought = decision["thought"]
-            elif asks_open_recent_download and recent_download_path:
+            elif asks_open_recent_download and recent_download_path and not recent_download_opened:
                 decision = {"action": "open_file", "path": recent_download_path,
                             "thought": "Ouverture du fichier le plus récent identifié dans Téléchargements."}
                 action = decision["action"]
@@ -405,11 +406,13 @@ def main():
                         break
                     continue
                 if action == "open_file":
-                    detail = "Fichier ouvert avec l'application par défaut : " + Path(str(decision.get("path") or "")).name
-                    emit("history", item={"time": datetime.now(timezone.utc).isoformat(), "type": "done", "detail": detail})
-                    emit("status", active=False, message=detail)
-                    stop_event.set()
-                    break
+                    recent_download_opened = True
+                    detail = "Ouverture demandée pour le fichier : " + Path(str(decision.get("path") or "")).name
+                    history.append("Fichier ouvert avec l'application par défaut ; vérifie maintenant la capture d'écran.")
+                    emit("history", item={"time": datetime.now(timezone.utc).isoformat(), "type": "open_file", "detail": detail})
+                    emit("status", active=True, message="Fichier ouvert : vérification visuelle en cours…")
+                    time.sleep(1.0)
+                    continue
                 if action == "open_app" and switch_sequence:
                     switch_index += 1
                 if blender_delete_task and action == "open_app":
