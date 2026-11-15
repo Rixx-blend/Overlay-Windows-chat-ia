@@ -121,6 +121,12 @@ def main():
     images_view_completed = False
     task_manager_opened = False
     top_memory_reported = False
+    asks_epic_fortnite = bool(
+        re.search(r"\b(epic\s*games?|epicgames)\b", args.task, re.IGNORECASE)
+        and re.search(r"\bfortnite\b", args.task, re.IGNORECASE)
+        and re.search(r"\b(lance|lancer|ouvre|ouvrir|démarre|demarrer|start|launch)\b", args.task, re.IGNORECASE)
+    )
+    epic_fortnite_completed = False
     last_open_app = ""
     repeated_open_app_count = 0
 
@@ -174,7 +180,12 @@ def main():
             thought = str(decision.get("thought") or "").strip()[:400]
             # Route explicit Streamlabs recording requests to the desktop app first;
             # never let a small vision model reinterpret the product as a website.
-            if asks_streamlabs_recording and not streamlabs_launch_requested:
+            if asks_epic_fortnite and not epic_fortnite_completed:
+                decision = {"action": "launch_epic_fortnite",
+                            "thought": "Lancement d’Epic Games Launcher puis démarrage de Fortnite avec vérification du processus du jeu."}
+                action = decision["action"]
+                thought = decision["thought"]
+            elif asks_streamlabs_recording and not streamlabs_launch_requested:
                 decision = {"action": "open_app", "app": "Streamlabs Desktop",
                             "thought": "Lancement de l’application Streamlabs Desktop avant de repérer le contrôle d’enregistrement local."}
                 action = decision["action"]
@@ -276,7 +287,7 @@ def main():
                     continue
 
             # Reject invented natural-language actions before they reach the executor.
-            allowed_actions = {"left_click", "double_click", "type", "hotkey", "scroll", "wait", "open_app", "open_url", "find_latest_file", "open_file", "calculate", "get_windows_version", "open_images_large_icons", "get_top_memory_apps", "done"}
+            allowed_actions = {"left_click", "double_click", "type", "hotkey", "scroll", "wait", "open_app", "open_url", "find_latest_file", "open_file", "calculate", "get_windows_version", "open_images_large_icons", "get_top_memory_apps", "launch_epic_fortnite", "done"}
             if action not in allowed_actions:
                 invalid_plan_count += 1
                 error_detail = "Action non autorisée retournée par le modèle : " + str(action)[:100]
@@ -465,6 +476,12 @@ def main():
                 if action == "get_windows_version":
                     windows_version_retrieved = True
                     emit("history", item={"time": datetime.now(timezone.utc).isoformat(), "type": "get_windows_version", "detail": result})
+                    emit("history", item={"time": datetime.now(timezone.utc).isoformat(), "type": "done", "detail": result})
+                    emit("status", active=False, message=result)
+                    break
+                if action == "launch_epic_fortnite":
+                    epic_fortnite_completed = True
+                    emit("history", item={"time": datetime.now(timezone.utc).isoformat(), "type": "launch_epic_fortnite", "detail": result})
                     emit("history", item={"time": datetime.now(timezone.utc).isoformat(), "type": "done", "detail": result})
                     emit("status", active=False, message=result)
                     break
