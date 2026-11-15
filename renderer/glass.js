@@ -179,7 +179,16 @@
 
   let startPromise = null;
   function startStream() {
-    if (stream) return Promise.resolve(true);
+    if (stream && stream.getVideoTracks().some((track) => track.readyState === 'live')) {
+      if (video.srcObject !== stream) video.srcObject = stream;
+      if (video.paused) video.play().catch((err) => console.warn('reprise du flux écran :', err));
+      return Promise.resolve(true);
+    }
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop());
+      stream = null;
+      video.srcObject = null;
+    }
     if (startPromise) return startPromise;
     startPromise = doStart().finally(() => (startPromise = null));
     return startPromise;
@@ -268,12 +277,27 @@
   window.api.onVisibility((v) => {
     shown = v;
     if (!v) {
-      stopStream();
-    } else if (live) {
-      startStream();
-    } else {
-      takeSnapshot();
+      // Keep the live display-capture stream alive while the overlay is hidden.
+      // Restarting getDisplayMedia on every re-open can fail or leave the WebGL
+      // texture empty, which makes the transparent glass look like a white panel.
+      if (!live) stopStream();
+      return;
     }
+
+    // Re-sync the glass after a hide/show cycle.
+    requestAnimationFrame(() => {
+      if (!shown) return;
+      if (live) {
+        startStream().then((ok) => {
+          if (ok && shown && video.readyState >= 2) {
+            newFrame = true;
+            video.requestVideoFrameCallback(onVideoFrame);
+          }
+        });
+      } else {
+        takeSnapshot();
+      }
+    });
   });
 
   window.api.onSnapshot(() => takeSnapshot());
