@@ -1186,7 +1186,6 @@ const computerStop = $('computerStop');
 const computerTask = $('computerTask');
 const computerStatus = $('computerStatus');
 const computerHistory = $('computerHistory');
-const computerCopyReport = $('computerCopyReport');
 let computerReportTask = '';
 let computerReportStartedAt = null;
 let computerReportFinishedAt = null;
@@ -1216,6 +1215,36 @@ function buildComputerReport() {
     );
   });
   return lines.join('\n');
+}
+
+function attachComputerReportCopyButton(bubble) {
+  if (!bubble || bubble.querySelector('.computer-report-copy')) return;
+  const report = buildComputerReport();
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'computer-report-copy';
+  button.title = 'Copier tous les logs de cette tâche';
+  button.setAttribute('aria-label', 'Copier tous les logs de cette tâche');
+  button.innerHTML = '<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="6.5" y="6.5" width="10" height="11" rx="1.8"></rect><path d="M13.5 6.5V4.8A1.8 1.8 0 0 0 11.7 3H5.8A1.8 1.8 0 0 0 4 4.8v8.4A1.8 1.8 0 0 0 5.8 15h.7"></path></svg><span>Copier les logs</span>';
+  button.addEventListener('click', async () => {
+    button.disabled = true;
+    const result = await bridge.copyComputerReport(report);
+    button.disabled = false;
+    if (result && result.ok) {
+      button.classList.add('is-copied');
+      button.querySelector('span').textContent = 'Logs copiés';
+      button.title = 'Rapport copié dans le presse-papiers';
+      setTimeout(() => {
+        button.classList.remove('is-copied');
+        button.querySelector('span').textContent = 'Copier les logs';
+        button.title = 'Copier tous les logs de cette tâche';
+      }, 1800);
+    } else {
+      button.title = (result && result.error) || 'Copie impossible';
+      button.querySelector('span').textContent = 'Échec de la copie';
+    }
+  });
+  bubble.append(button);
 }
 
 function computerActivityLabel(item) {
@@ -1316,9 +1345,6 @@ computerStart.addEventListener('click', async () => {
   computerReportEvents = [];
   computerReportStatus = 'Tâche en cours';
   recordComputerReportEvent('demande', task);
-  computerCopyReport.hidden = true;
-  computerCopyReport.disabled = true;
-  computerCopyReport.textContent = 'Copier le rapport';
   computerStart.disabled = true; computerStop.disabled = false; computerStatus.textContent = 'Démarrage…';
   recordComputerReportEvent('status', 'Démarrage demandé.');
   try {
@@ -1329,7 +1355,8 @@ computerStart.addEventListener('click', async () => {
       computerReportStatus = computerStatus.textContent;
       computerReportFinishedAt = new Date().toISOString();
       recordComputerReportEvent('error', computerReportStatus);
-      computerCopyReport.hidden = false; computerCopyReport.disabled = false;
+      attachComputerReportCopyButton(activeComputerBubble);
+      activeComputerBubble = null; activeComputerFeed = null; activeComputerLoader = null;
     }
   } catch (error) {
     computerStatus.textContent = error.message || 'Démarrage impossible.';
@@ -1337,21 +1364,12 @@ computerStart.addEventListener('click', async () => {
     computerReportStatus = computerStatus.textContent;
     computerReportFinishedAt = new Date().toISOString();
     recordComputerReportEvent('error', computerReportStatus);
-    computerCopyReport.hidden = false; computerCopyReport.disabled = false;
+    attachComputerReportCopyButton(activeComputerBubble);
+    activeComputerBubble = null; activeComputerFeed = null; activeComputerLoader = null;
   }
 });
 computerStop.addEventListener('click', async () => {
   computerStop.disabled = true; computerStatus.textContent = 'Arrêt demandé…'; await bridge.computerUseStop();
-});
-computerCopyReport.addEventListener('click', async () => {
-  const report = buildComputerReport();
-  const result = await bridge.copyComputerReport(report);
-  if (result && result.ok) {
-    computerCopyReport.textContent = 'Rapport copié';
-    setTimeout(() => { computerCopyReport.textContent = 'Copier le rapport'; }, 1800);
-  } else {
-    computerStatus.textContent = (result && result.error) || 'Copie du rapport impossible.';
-  }
 });
 bridge.onComputerUseStatus((state) => {
   computerStatus.textContent = state.message || (state.active ? 'En cours…' : 'Agent inactif');
@@ -1370,8 +1388,7 @@ bridge.onComputerUseStatus((state) => {
       computerReportFinishedAt = new Date().toISOString();
       computerReportStatus = state.message || computerStatus.textContent || 'Tâche terminée';
       recordComputerReportEvent(state.error ? 'error' : 'fin', computerReportStatus);
-      computerCopyReport.hidden = false;
-      computerCopyReport.disabled = false;
+      attachComputerReportCopyButton(activeComputerBubble);
     }
     if (activeComputerLoader) activeComputerLoader();
     activeComputerLoader = null; activeComputerMainLabel = null; activeComputerFeed = null; activeComputerBubble = null;
