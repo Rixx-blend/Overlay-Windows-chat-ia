@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pyautogui
 import pyperclip
+from pywinauto import Desktop
 
 
 pyautogui.FAILSAFE = True
@@ -26,6 +27,37 @@ def normalized_point(action):
         raise ValueError("Coordonnées normalisées hors limites.")
     width, height = pyautogui.size()
     return round(x * (width - 1) / 1000), round(y * (height - 1) / 1000)
+
+
+def _uia_element_at(x, y):
+    try:
+        element = Desktop(backend="uia").from_point(x, y)
+    except Exception as exc:
+        raise RuntimeError("Aucun contrôle Windows UI Automation détecté à cet emplacement : " + str(exc)[:180])
+    if not element or not element.is_visible():
+        raise RuntimeError("Aucun contrôle accessible à cet emplacement.")
+    return element
+
+
+def _uia_invoke(element):
+    # Invoke/Toggle/Selection/ExpandCollapse utilisent les patterns UIA :
+    # ils ne déplacent pas le curseur matériel.
+    for pattern_name, method_name in (
+        ("iface_invoke", "Invoke"),
+        ("iface_toggle", "Toggle"),
+        ("iface_selection_item", "Select"),
+        ("iface_expand_collapse", "Expand"),
+    ):
+        try:
+            pattern = getattr(element, pattern_name)
+            getattr(pattern, method_name)()
+            return
+        except Exception:
+            continue
+    raise RuntimeError(
+        "Ce contrôle ne fournit aucun pattern UI Automation cliquable. "
+        "L'action est arrêtée plutôt que de déplacer ta souris physique."
+    )
 
 
 def launch_app(name):
@@ -138,19 +170,23 @@ def execute(action, confirm):
     kind = action.get("action")
     if kind in {"left_click", "double_click", "right_click"}:
         x, y = normalized_point(action)
-        pyautogui.moveTo(x, y, duration=0.16)
-        if kind == "left_click":
-            pyautogui.click(x, y)
-        elif kind == "double_click":
-            pyautogui.doubleClick(x, y, interval=0.12)
+        element = _uia_element_at(x, y)
+        if kind == "right_click":
+            raise RuntimeError("Le clic droit indépendant n'est pas pris en charge par UI Automation pour ce contrôle.")
+        if kind == "double_click":
+            _uia_invoke(element)
+            _uia_invoke(element)
         else:
-            pyautogui.rightClick(x, y)
-        return "Clic effectué."
+            _uia_invoke(element)
+        return "Action exécutée via Windows UI Automation, sans déplacer la souris physique."
     if kind == "type":
         value = str(action.get("text") or "")[:2000]
-        pyperclip.copy(value)
-        pyautogui.hotkey("ctrl", "v")
-        return "Texte saisi."
+        try:
+            element = Desktop(backend="uia").get_active().get_focus()
+            element.iface_value.SetValue(value)
+            return "Texte défini via UI Automation, sans utiliser le clavier global."
+        except Exception:
+            raise RuntimeError("Le champ actif ne prend pas en charge ValuePattern. Saisie clavier indépendante non disponible pour ce champ.")
     if kind == "hotkey":
         keys = action.get("keys")
         if not isinstance(keys, list) or not keys:
@@ -165,10 +201,13 @@ def execute(action, confirm):
         return "Raccourci envoyé : " + "+".join(normalized)
     if kind == "scroll":
         x, y = normalized_point(action)
+        element = _uia_element_at(x, y)
         amount = max(-12, min(12, int(action.get("amount", -3))))
-        pyautogui.moveTo(x, y, duration=0.1)
-        pyautogui.scroll(amount)
-        return "Défilement effectué."
+        try:
+            element.iface_scroll.Scroll(0, 1 if amount > 0 else 2)
+            return "Défilement demandé via UI Automation."
+        except Exception:
+            raise RuntimeError("Ce contrôle ne propose pas ScrollPattern. Aucun mouvement de souris physique n'a été effectué.")
     if kind == "wait":
         seconds = max(0.2, min(5.0, float(action.get("seconds", 1))))
         time.sleep(seconds)
