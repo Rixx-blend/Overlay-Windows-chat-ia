@@ -1,4 +1,5 @@
 import os
+import ctypes
 import subprocess
 import time
 import unicodedata
@@ -62,10 +63,41 @@ def _uia_invoke(element):
     )
 
 
+def _activate_existing_window(title_fragment):
+    """Restore and focus an already-running app window."""
+    user32 = ctypes.windll.user32
+    matches = []
+
+    @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+    def enum_callback(hwnd, _):
+        if not user32.IsWindowVisible(hwnd):
+            return True
+        length = user32.GetWindowTextLengthW(hwnd)
+        if length <= 0:
+            return True
+        buffer = ctypes.create_unicode_buffer(length + 1)
+        user32.GetWindowTextW(hwnd, buffer, length + 1)
+        if title_fragment.casefold() in buffer.value.casefold():
+            matches.append(hwnd)
+        return True
+
+    user32.EnumWindows(enum_callback, 0)
+    if not matches:
+        return False
+    hwnd = matches[0]
+    if user32.IsIconic(hwnd):
+        user32.ShowWindow(hwnd, 9)
+    user32.SetForegroundWindow(hwnd)
+    time.sleep(0.4)
+    return True
+
+
 def launch_app(name):
     name = str(name or "").strip()[:80]
     if not name:
         raise ValueError("Nom d'application manquant.")
+    if "blender" in name.casefold() and _activate_existing_window("Blender"):
+        return "Fenêtre Blender existante réactivée."
     escaped = name.replace("'", "''")
     script = (
         "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(); $OutputEncoding = [Console]::OutputEncoding; "
