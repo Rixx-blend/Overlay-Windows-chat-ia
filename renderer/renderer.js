@@ -1188,6 +1188,7 @@ const computerHistory = $('computerHistory');
 function computerActivityLabel(item) {
   const type = String(item.type || 'info').toLowerCase();
   const detail = String(item.detail || '');
+  if (type === 'observation') return 'Observe et lit les éléments visibles à l’écran';
   if (type === 'decision') {
     if (/recherch|search/i.test(detail)) return 'Recherche sur le site web';
     if (/source|article|page/i.test(detail)) return 'Examine le contenu affiché';
