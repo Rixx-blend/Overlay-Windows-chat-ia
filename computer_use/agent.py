@@ -114,9 +114,6 @@ def main():
             emit("status", active=True, message="Analyse de l’écran — observation " + str(step) + "/30")
             shot = capture_screen(add_grid=os.environ.get("OVERLAYIA_COMPUTER_GRID") == "1")
             # Display the AI cursor from the start of each observation, not only on clicks.
-            class _POINT(ctypes.Structure):
-                _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
-            _point = _POINT()
             screenshots.append(shot["data_url"])
             screenshots = screenshots[-2:]
             emit("history", item={"time": datetime.now(timezone.utc).isoformat(), "type": "observation", "detail": "Capture d’écran actualisée et transmise au modèle visuel pour examiner les éléments visibles."})
