@@ -9,6 +9,7 @@ function createComputerUse({ getWindow, getCursorWindow }) {
   let active = false;
   let history = [];
   let outputBuffer = '';
+  let lastTerminalMessage = '';
   let runId = 0;
 
   function emit(channel, payload) {
@@ -135,7 +136,9 @@ function createComputerUse({ getWindow, getCursorWindow }) {
       return;
     }
     if (message.event === 'status') {
-      // Keep controls locked until the Python child has actually exited.
+      // Keep controls locked until the Python child has actually exited, but retain
+      // the terminal result so the child-close event does not erase it.
+      if (message.active === false && message.message) lastTerminalMessage = String(message.message);
       emit('computer-use-status', { ...message, active: true });
       return;
     }
@@ -180,6 +183,7 @@ function createComputerUse({ getWindow, getCursorWindow }) {
     const id = ++runId;
     active = true;
     history = [];
+    lastTerminalMessage = '';
     emit('computer-use-status', { active: true, message: 'Préparation du moteur Python…' });
     try {
       const files = pythonFiles();
@@ -229,7 +233,7 @@ function createComputerUse({ getWindow, getCursorWindow }) {
         if (cursor && !cursor.isDestroyed()) { cursor.webContents.send('ai-cursor-visible', false); cursor.hide(); }
         if (code === 130) emit('computer-use-status', { active: false, message: 'Arrêt d’urgence effectué avec Échap.' });
         else if (code !== 0) emit('computer-use-status', { active: false, error: true, message: 'Le moteur Python s’est arrêté (code ' + code + '). Consulte les journaux.' });
-        else emit('computer-use-status', { active: false, message: 'Agent inactif.' });
+        else emit('computer-use-status', { active: false, message: lastTerminalMessage || 'Agent inactif.' });
       });
     } catch (error) {
       if (id !== runId) return;
