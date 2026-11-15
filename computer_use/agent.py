@@ -97,7 +97,19 @@ def main():
     blender_enter_step = -1
     calculator_opened = False
     calculator_sent = False
+    recent_download_path = None
     cursor_initialized = False
+    last_open_app = ""
+    repeated_open_app_count = 0
+
+    # Plan explicite pour une demande simple d'ouverture puis d'alternance
+    # entre Chrome et le Bloc-notes : le petit modèle ne doit pas rester bloqué
+    # à répéter la première application observée.
+    asks_switch_apps = bool(re.search(r"passe(?:r)? de l['’]un a l['’]autre|alterne(?:r)? entre|switch between", args.task, re.IGNORECASE))
+    switch_sequence = (["Google Chrome", "Bloc-notes", "Google Chrome", "Bloc-notes"]
+                       if asks_switch_apps and re.search(r"chrome", args.task, re.IGNORECASE)
+                       and re.search(r"bloc[- ]notes|notepad", args.task, re.IGNORECASE) else [])
+    switch_index = 0
     expected_app = None
     if re.search(r"bloc[- ]notes|notepad", args.task, re.IGNORECASE):
         expected_app = ("Bloc-notes", "Notepad")
@@ -137,9 +149,26 @@ def main():
                 any(term in task_folded for term in ("téléchargements", "telechargements", "downloads"))
                 and any(term in task_folded for term in ("plus récent", "plus recente", "dernier fichier", "dernière fichier", "fichier le plus récent", "fichier le plus recent"))
             )
-            if asks_recent_download:
+            asks_open_recent_download = asks_recent_download and bool(
+                re.search(r"\b(ouvre|ouvrir|ouvrir-le|ouvre-le|affiche|afficher|open)\b", task_folded)
+            )
+            if asks_recent_download and (recent_download_path is None or not asks_open_recent_download):
                 decision = {"action": "find_latest_file", "folder": "Téléchargements", "extension": "*",
                             "thought": "Recherche du fichier le plus récent dans le dossier Téléchargements Windows."}
+                action = decision["action"]
+                thought = decision["thought"]
+            elif asks_open_recent_download and recent_download_path:
+                decision = {"action": "open_file", "path": recent_download_path,
+                            "thought": "Ouverture du fichier le plus récent identifié dans Téléchargements."}
+                action = decision["action"]
+                thought = decision["thought"]
+
+            if switch_sequence:
+                if switch_index < len(switch_sequence):
+                    decision = {"action": "open_app", "app": switch_sequence[switch_index],
+                                "thought": "Activation de " + switch_sequence[switch_index] + " (" + str(switch_index + 1) + "/" + str(len(switch_sequence)) + ")."}
+                else:
+                    decision = {"action": "done", "thought": "Alternance terminée : Chrome et le Bloc-notes ont été activés successivement."}
                 action = decision["action"]
                 thought = decision["thought"]
 
@@ -318,11 +347,29 @@ def main():
                 break
             if stop_event.is_set():
                 break
+            # Empêche le modèle de relancer indéfiniment la même application.
+            if action == "open_app":
+                requested_app = str(decision.get("app") or "").strip().casefold()
+                if requested_app == last_open_app:
+                    repeated_open_app_count += 1
+                else:
+                    last_open_app = requested_app
+                    repeated_open_app_count = 0
+                if repeated_open_app_count >= 2 and not switch_sequence:
+                    detail = "Blocage de boucle : la même application a été demandée plusieurs fois sans progression. Nouvelle stratégie requise."
+                    emit("history", item={"time": datetime.now(timezone.utc).isoformat(), "type": "replan", "detail": detail})
+                    emit("status", active=False, error=True, message=detail)
+                    break
+
             try:
                 if action in {"left_click", "double_click", "scroll"}:
                     emit("cursor", x=round(float(decision.get("x", 0)) * shot["screen_width"] / 1000),
                          y=round(float(decision.get("y", 0)) * shot["screen_height"] / 1000), action=action)
                 result = execute(decision, confirm, expected_app=expected_app)
+                if action in {"type", "hotkey", "calculate"}:
+                    app_center = get_app_window_center(_foreground_app_hint(args.task))
+                    if app_center:
+                        emit("cursor", x=app_center[0], y=app_center[1], action="move")
                 if action == "open_app":
                     app_center = get_app_window_center(decision.get("app", ""))
                     if app_center:
@@ -345,12 +392,26 @@ def main():
                     emit("status", active=True, message="Calcul saisi : vérification visuelle du résultat…")
                     time.sleep(0.8)
                 if action == "find_latest_file":
+                    recent_download_path = result
                     filename = Path(result).name
-                    detail = "Fichier le plus récent dans Téléchargements : " + filename
+                    detail = "Fichier le plus récent trouvé dans Téléchargements : " + filename
+                    history.append("Fichier trouvé : " + result)
+                    emit("history", item={"time": datetime.now(timezone.utc).isoformat(), "type": "find_latest_file", "detail": detail})
+                    emit("status", active=True, message=detail)
+                    if not asks_open_recent_download:
+                        emit("history", item={"time": datetime.now(timezone.utc).isoformat(), "type": "done", "detail": detail})
+                        emit("status", active=False, message=detail)
+                        stop_event.set()
+                        break
+                    continue
+                if action == "open_file":
+                    detail = "Fichier ouvert avec l'application par défaut : " + Path(str(decision.get("path") or "")).name
                     emit("history", item={"time": datetime.now(timezone.utc).isoformat(), "type": "done", "detail": detail})
                     emit("status", active=False, message=detail)
                     stop_event.set()
                     break
+                if action == "open_app" and switch_sequence:
+                    switch_index += 1
                 if blender_delete_task and action == "open_app":
                     emit("status", active=True, message="Blender détecté : attente de stabilisation de la vue 3D…")
                     time.sleep(2.0)
