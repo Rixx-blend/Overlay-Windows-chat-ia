@@ -111,9 +111,9 @@ def main():
     # Détecte les demandes d'alternance même si l'utilisateur ajoute
     # « puis », « ensuite » ou une formulation légèrement différente.
     asks_switch_apps = bool(re.search(
-        r"(?:passe(?:r)?|bascul(?:e|er)|alterne(?:r)?)\\b.{0,70}\\b(?:entre|de)\\b|switch\\s+between",
+        r"(?:passe(?:r)?|bascul(?:e|er)|alterne(?:r)?)\b.{0,70}\b(?:entre|de)\b|switch\s+between",
         args.task, re.IGNORECASE
-    ) or re.search(r"de\\s+l['’]un\\s+[àa]\\s+l['’]autre", args.task, re.IGNORECASE))
+    ) or re.search(r"de\s+l['’]un\s+[àa]\s+l['’]autre", args.task, re.IGNORECASE))
     switch_sequence = (["Google Chrome", "Bloc-notes", "Google Chrome", "Bloc-notes"]
                        if asks_switch_apps and re.search(r"chrome", args.task, re.IGNORECASE)
                        and re.search(r"bloc[- ]notes|notepad", args.task, re.IGNORECASE) else [])
