@@ -134,7 +134,10 @@ function createWindow() {
     y: Math.round(workArea.y + workArea.height * 0.2),
     frame: false,
     transparent: true,
-    resizable: false,
+    resizable: true,
+    minimizable: true,
+    maximizable: true,
+    closable: true,
     skipTaskbar: false,
     alwaysOnTop: true,
     hasShadow: false,
@@ -158,8 +161,11 @@ function createWindow() {
     sendGeometry();
     win.webContents.send('visibility', win.isVisible());
     win.webContents.send('mode', liveGlass);
+    win.webContents.send('window-maximized', win.isMaximized());
   });
   win.on('move', sendGeometry);
+  win.on('maximize', () => win.webContents.send('window-maximized', true));
+  win.on('unmaximize', () => win.webContents.send('window-maximized', false));
   win.on('show', () => {
     sendGeometry();
     win.webContents.send('visibility', true);
@@ -1685,6 +1691,17 @@ ipcMain.on('focus-me', () => {
   if (win && !win.isDestroyed()) win.focus();
 });
 ipcMain.on('hide', () => win && win.hide());
+ipcMain.on('window-minimize', () => {
+  if (win && !win.isDestroyed()) win.minimize();
+});
+ipcMain.on('window-toggle-maximize', () => {
+  if (!win || win.isDestroyed()) return;
+  if (win.isMaximized()) win.unmaximize();
+  else win.maximize();
+});
+ipcMain.on('window-close', () => {
+  if (win && !win.isDestroyed()) win.close();
+});
 
 // Le renderer masque temporairement l'overlay des captures pour figer un fond propre
 ipcMain.handle('protect', (_e, on) => {
