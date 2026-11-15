@@ -376,17 +376,25 @@ function submit() {
   if (startsComputerTask && !simpleLaunch && !pending.length && settings.allowActions) {
     input.value = '';
     addBubble('user', text);
-    startComputerActivityBubble('Préparation du contrôle de l’ordinateur…');
+    startComputerActivityBubble('Préparation du contrôle de l’ordinateur…', text);
     bridge.computerUseStart(text).then((result) => {
       if (!result.ok && activeComputerBubble) {
         if (activeComputerLoader) activeComputerLoader();
-        activeComputerBubble.textContent = result.error || 'Démarrage impossible.';
+        computerReportFinishedAt = new Date().toISOString();
+        computerReportStatus = result.error || 'Démarrage impossible.';
+        recordComputerReportEvent('error', computerReportStatus);
+        activeComputerBubble.textContent = computerReportStatus;
+        attachComputerReportCopyButton(activeComputerBubble);
         activeComputerBubble = null; activeComputerFeed = null; activeComputerLoader = null;
       }
     }).catch((error) => {
       if (activeComputerBubble) {
         if (activeComputerLoader) activeComputerLoader();
-        activeComputerBubble.textContent = 'Computer Use : ' + error.message;
+        computerReportFinishedAt = new Date().toISOString();
+        computerReportStatus = 'Computer Use : ' + error.message;
+        recordComputerReportEvent('error', computerReportStatus);
+        activeComputerBubble.textContent = computerReportStatus;
+        attachComputerReportCopyButton(activeComputerBubble);
         activeComputerBubble = null; activeComputerFeed = null; activeComputerLoader = null;
       }
     });
@@ -1316,7 +1324,13 @@ function appendComputerActivity(item) {
   activeComputerFeed.prepend(row);
   while (activeComputerFeed.children.length > 8) activeComputerFeed.lastElementChild.remove();
 }
-function startComputerActivityBubble(label) {
+function startComputerActivityBubble(label, task = '') {
+  computerReportTask = task;
+  computerReportStartedAt = new Date().toISOString();
+  computerReportFinishedAt = null;
+  computerReportEvents = [];
+  computerReportStatus = 'Tâche en cours';
+  recordComputerReportEvent('demande', task || label);
   activeComputerBubble = addBubble('sys', '');
   const shell = document.createElement('div');
   shell.className = 'computer-live';
