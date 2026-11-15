@@ -383,9 +383,12 @@ function submit() {
   if (shouldUseComputer) {
     input.value = '';
     addBubble('user', text);
+    messages.push({ role: 'user', content: text });
+    computerChatHandoffPending = computerUseMode;
     startComputerActivityBubble('Préparation du contrôle de l’ordinateur…', text);
     bridge.computerUseStart(text).then((result) => {
       if (!result.ok && activeComputerBubble) {
+        computerChatHandoffPending = false;
         if (activeComputerLoader) activeComputerLoader();
         computerReportFinishedAt = new Date().toISOString();
         computerReportStatus = result.error || 'Démarrage impossible.';
@@ -395,6 +398,7 @@ function submit() {
         activeComputerBubble = null; activeComputerFeed = null; activeComputerLoader = null;
       }
     }).catch((error) => {
+      computerChatHandoffPending = false;
       if (activeComputerBubble) {
         if (activeComputerLoader) activeComputerLoader();
         computerReportFinishedAt = new Date().toISOString();
@@ -1228,6 +1232,7 @@ let computerReportStartedAt = null;
 let computerReportFinishedAt = null;
 let computerReportEvents = [];
 let computerReportStatus = 'Aucune tâche terminée';
+let computerChatHandoffPending = false;
 function recordComputerReportEvent(type, detail, time = new Date().toISOString()) {
   computerReportEvents.push({ time, type: String(type || 'info'), detail: String(detail || '') });
 }
@@ -1435,6 +1440,13 @@ bridge.onComputerUseStatus((state) => {
     }
     if (activeComputerLoader) activeComputerLoader();
     activeComputerLoader = null; activeComputerMainLabel = null; activeComputerFeed = null; activeComputerBubble = null;
+    if (computerChatHandoffPending && computerReportStartedAt) {
+      computerChatHandoffPending = false;
+      const reportForChat = buildComputerReport();
+      messages.push({ role: 'assistant', content: 'Le module Computer Use a terminé sa tâche. Le rapport d’exécution est disponible pour le module Chat.' });
+      messages.push({ role: 'user', content: 'Tu es le module Chat qui collabore avec Computer Use. À partir du rapport ci-dessous, réponds à la demande initiale de façon utile et honnête. Distingue les actions réellement confirmées des étapes seulement tentées. Si la tâche a échoué ou reste incomplète, dis-le clairement. Ne prétends pas avoir vu des résultats qui ne figurent pas dans le rapport.\n\n' + reportForChat });
+      startAI();
+    }
   }
 });
 bridge.onComputerUseHistory((item) => {
