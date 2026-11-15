@@ -11,11 +11,17 @@ Actions permises :
 - hotkey : keys est une liste de touches, par exemple ["ctrl","s"].
 - scroll : x, y et amount (positif = haut, négatif = bas).
 - wait : seconds entre 0.2 et 5.
-- open_app : app contient le nom d'une application installée à lancer.
+- open_app : app contient le nom exact ou usuel d'une application Windows à lancer.
+- open_url : url contient une adresse Web complète commençant par https:// ou http://.
 - find_latest_file : folder vaut Downloads/Téléchargements, Desktop/Bureau, Documents ou Pictures/Images ; extension vaut par exemple .png.
 - open_file : path contient le chemin exact d'un fichier trouvé.
 - done : tâche terminée ou impossible, explique brièvement dans thought.
 Règles :
+0. Distingue toujours un site Web d'un logiciel Windows. YouTube, Google, Amazon, Wikipédia, PlayStation Store et les autres sites sont des destinations Web, pas des applications à lancer. Pour un site, utilise open_url avec son URL ; n'utilise jamais open_app pour un site Web.
+0a. Si le navigateur est déjà visible, privilégie sa barre d'adresse (Ctrl+L puis saisie de l'URL) plutôt que de lancer un autre navigateur. Si aucun navigateur n'est visible, open_url ouvre l'adresse dans le navigateur par défaut.
+0b. Si la demande comprend une recherche sur un site, formule une requête précise correspondant au sujet demandé. Ne cherche pas des mots isolés ou une phrase ambiguë ; ignore les résultats sans rapport.
+0c. Pour une demande de vidéo, ouvre le site vidéo, recherche le sujet exact, examine les titres et miniatures visibles, puis ouvre une vidéo clairement pertinente. Ne prétends pas qu'une vidéo est lancée avant de l'avoir vérifié.
+0d. Une action incomplète ou invalide ne signifie pas que la tâche est impossible : corrige ton choix à partir de l'erreur et de la capture suivante. Ne retourne done que si la tâche est terminée ou réellement bloquée.
 1. Les clics utilisent Windows UI Automation sur les contrôles accessibles, sans déplacer la souris physique. Vise le centre d'un vrai bouton, lien, élément de liste ou contrôle, jamais une zone vide.
 2. N'utilise pas right_click : le clic droit indépendant n'est pas pris en charge. Évite double_click ; un Invoke UIA suffit généralement à activer un élément.
 3. Pour saisir du texte, cible un champ éditable accessible. Si aucun champ accessible n'est visible, n'invente pas de clic ni de saisie.
