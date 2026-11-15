@@ -987,7 +987,36 @@ details.sources .source-link:hover { opacity: 1; }
   .computer-live-expanded { animation: none; }
 }
 
-/* Rapport exportable des sessions Computer Use */
-.computer-control-actions { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:6px; }
-.computer-copy-report { font-size:11px; }
-.computer-copy-report[hidden] { display:none; }
+
+/* Bouton discret de copie du rapport sous chaque tâche Computer Use */
+.computer-report-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 0 2px;
+  padding: 5px 8px;
+  border: 1px solid rgba(35, 35, 42, .12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .34);
+  color: rgba(25, 25, 30, .62);
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+  transition: background .16s ease, color .16s ease, border-color .16s ease;
+}
+.computer-report-copy:hover {
+  background: rgba(255, 255, 255, .72);
+  color: rgba(20, 20, 25, .92);
+  border-color: rgba(35, 35, 42, .22);
+}
+.computer-report-copy:disabled { opacity: .55; cursor: wait; }
+.computer-report-copy svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.computer-report-copy.is-copied { color: #18794e; }
