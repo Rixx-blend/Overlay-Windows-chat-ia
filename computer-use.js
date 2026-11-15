@@ -111,11 +111,26 @@ function createComputerUse({ getWindow, getCursorWindow }) {
       const cursor = getCursorWindow && getCursorWindow();
       if (cursor && !cursor.isDestroyed()) {
         const display = screen.getPrimaryDisplay();
-        cursor.webContents.send('ai-cursor-position', {
+        const position = {
           ...message,
           x: Number(message.x || 0) / display.scaleFactor,
           y: Number(message.y || 0) / display.scaleFactor,
-        });
+        };
+        // The cursor overlay can finish loading after the Python agent starts.
+        // Show it on demand and send the first position only after its page is ready.
+        const publishPosition = () => {
+          if (!cursor.isDestroyed()) {
+            cursor.setAlwaysOnTop(true, 'screen-saver');
+            if (!cursor.isVisible()) cursor.showInactive();
+            cursor.webContents.send('ai-cursor-position', position);
+            cursor.webContents.send('ai-cursor-visible', true);
+          }
+        };
+        if (cursor.webContents.isLoading()) {
+          cursor.webContents.once('did-finish-load', publishPosition);
+        } else {
+          publishPosition();
+        }
       }
       return;
     }
