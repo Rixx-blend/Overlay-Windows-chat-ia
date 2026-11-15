@@ -38,10 +38,6 @@ contextBridge.exposeInMainWorld('api', {
   getVersion: () => ipcRenderer.invoke('get-version'),
 
   // Fenêtre
-  minimizeWindow: () => ipcRenderer.send('window-minimize'),
-  toggleMaximizeWindow: () => ipcRenderer.send('window-toggle-maximize'),
-  closeWindow: () => ipcRenderer.send('window-close'),
-  onWindowMaximized: (cb) => on('window-maximized', cb),
   protect: (on) => ipcRenderer.invoke('protect', on),
   cardRect: (r) => ipcRenderer.send('card-rect', r),
   onHover: (cb) => on('hover', cb),
