@@ -110,7 +110,7 @@ def _wait_for_blender_ready(timeout=90):
             time.sleep(0.8)
             if user32.GetForegroundWindow() == hwnd:
                 # Blender may show its splash/loading screen before the viewport is usable.
-                time.sleep(4.0)
+                time.sleep(7.0)
                 return True
         time.sleep(0.75)
     raise TimeoutError("Blender n'a pas affiché de fenêtre active après 90 secondes.")
