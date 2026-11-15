@@ -852,9 +852,13 @@ details.sources .source-link:hover { opacity: 1; }
   display: flex;
   flex-direction: column;
   gap: 5px;
-  max-height: 142px;
-  overflow: hidden;
-  padding: 1px 0 0 2px;
+  max-height: 260px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(40,40,44,.24) transparent;
+  padding: 1px 3px 4px 2px;
 }
 .computer-live-item {
   display: flex;
@@ -926,22 +930,21 @@ details.sources .source-link:hover { opacity: 1; }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  flex: 0 0 21px;
-  width: 21px;
-  height: 21px;
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
   padding: 0;
-  margin: -3px -3px -3px 0;
-  border: 1px solid rgba(30,30,34,.10);
-  border-radius: 7px;
-  background: rgba(30,30,34,.045);
-  color: rgba(25,25,29,.68);
+  margin: -2px -2px -2px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: rgba(25,25,29,.58);
   cursor: pointer;
-  transition: background .18s ease, color .18s ease, transform .2s ease, border-color .18s ease;
+  transition: color .18s ease, transform .2s ease;
 }
 .computer-live-expand:hover {
-  background: rgba(30,30,34,.10);
+  background: transparent;
   color: #17171a;
-  border-color: rgba(30,30,34,.18);
 }
 .computer-live-expand svg {
   width: 12px;
@@ -960,6 +963,12 @@ details.sources .source-link:hover { opacity: 1; }
   border: 1px solid rgba(30,30,34,.075);
   border-radius: 9px;
   background: rgba(35,35,39,.045);
+  max-height: 170px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(40,40,44,.24) transparent;
   animation: computer-details-in .18s ease both;
 }
 .computer-live-expanded[hidden] { display: none !important; }
