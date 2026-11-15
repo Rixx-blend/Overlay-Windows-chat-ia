@@ -147,7 +147,7 @@ def main():
                 bool(re.search(r"calculatrice|calculator", task_folded))
                 and bool(re.search(r"calcul|calcule|calculer|compute", task_folded))
             )
-            calculator_match = re.search(r"(\\d{1,12})\\s*[×xX*]\\s*(\\d{1,12})", args.task)
+            calculator_match = re.search(r"(\d{1,12})\s*[×xX*]\s*(\d{1,12})", args.task)
             calculator_expression = (calculator_match.group(1) + "×" + calculator_match.group(2)) if calculator_match else ""
             if asks_calculator and not calculator_opened:
                 decision = {"action": "open_app", "app": "Calculatrice",
