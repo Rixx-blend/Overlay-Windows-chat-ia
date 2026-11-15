@@ -217,14 +217,14 @@ def main():
                 raw_url = str(decision.get("url") or "").strip()
                 parsed_url = urlparse(raw_url)
                 # A search phrase is not a URL. Convert it to a real Google search URL.
-                asks_web_search = bool(re.search(r"\\b(recherche|rechercher|cherche|chercher|search)\\b", args.task, re.IGNORECASE))
+                asks_web_search = bool(re.search(r"\b(recherche|rechercher|cherche|chercher|search)\b", args.task, re.IGNORECASE))
                 invalid_as_url = (not raw_url or " " in raw_url or parsed_url.scheme not in {"http", "https"} and "." not in raw_url.split("/")[0])
                 if asks_web_search and (invalid_as_url or parsed_url.netloc.casefold() in {"google.com", "www.google.com"} and parsed_url.path in {"", "/"}):
                     query = raw_url if raw_url and " " in raw_url and len(raw_url.split()) <= 8 else ""
                     if not query:
-                        match = re.search(r"\\b(?:recherche|rechercher|cherche|chercher|search)\\s+(?:sur\\s+(?:google|internet)\\s+)?(.+)$", args.task, re.IGNORECASE)
+                        match = re.search(r"\b(?:recherche|rechercher|cherche|chercher|search)\s+(?:sur\s+(?:google|internet)\s+)?(.+)$", args.task, re.IGNORECASE)
                         query = match.group(1).strip() if match else ""
-                        query = re.sub(r"^(?:sur\\s+google\\s+)?", "", query, flags=re.IGNORECASE)
+                        query = re.sub(r"^(?:sur\s+google\s+)?", "", query, flags=re.IGNORECASE)
                     query = query.strip(" «»\"'")
                     if query:
                         decision["url"] = "https://www.google.com/search?q=" + quote_plus(query)
