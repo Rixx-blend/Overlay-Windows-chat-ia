@@ -208,8 +208,8 @@ def find_latest_file(folder, extension):
         raise ValueError("Dossier non autorisé : " + str(folder))
     registry_name, fallback_names = selected
     root = _windows_user_folder(registry_name, fallback_names)
-    ext = str(extension or ".png").strip().lower()
-    if not ext.startswith(".") or len(ext) > 10 or not ext[1:].isalnum():
+    ext = str(extension or "*").strip().lower()
+    if ext != "*" and (not ext.startswith(".") or len(ext) > 10 or not ext[1:].isalnum()):
         raise ValueError("Extension invalide.")
     if not root.exists():
         raise FileNotFoundError("Dossier introuvable : " + str(root))
@@ -226,7 +226,7 @@ def find_latest_file(folder, extension):
                 if newest is None or modified > newest[0]:
                     newest = (modified, candidate)
     if newest is None:
-        raise FileNotFoundError("Aucun fichier " + ext + " trouvé dans " + str(root))
+        raise FileNotFoundError("Aucun fichier trouvé dans " + str(root) + (" avec l’extension " + ext if ext != "*" else ""))
     return str(newest[1])
 
 
@@ -287,12 +287,21 @@ def execute(action, confirm):
         return "Action exécutée via Windows UI Automation, sans déplacer la souris physique."
     if kind == "type":
         value = str(action.get("text") or "")[:2000]
-        try:
-            element = Desktop(backend="uia").get_active().get_focus()
-            element.iface_value.SetValue(value)
-            return "Texte défini via UI Automation, sans utiliser le clavier global."
-        except Exception:
-            raise RuntimeError("Le champ actif ne prend pas en charge ValuePattern. Saisie clavier indépendante non disponible pour ce champ.")
+        if not value:
+            return "Aucun texte à saisir."
+        # Send Unicode keystrokes to the currently focused application. This works
+        # in standard edit controls, WinUI/UWP apps and custom fields that expose
+        # no UIA ValuePattern. It does not move the user's physical mouse.
+        user32 = ctypes.windll.user32
+        if not user32.GetForegroundWindow():
+            raise RuntimeError("Aucune fenêtre active pour recevoir le texte.")
+        for character in value:
+            encoded = character.encode("utf-16-le")
+            for index in range(0, len(encoded), 2):
+                code_unit = int.from_bytes(encoded[index:index + 2], "little")
+                user32.keybd_event(0, code_unit, 0x0004, 0)
+                user32.keybd_event(0, code_unit, 0x0004 | 0x0002, 0)
+        return "Texte saisi par événements clavier Unicode Windows dans la fenêtre active."
     if kind == "hotkey":
         keys = action.get("keys")
         if not isinstance(keys, list) or not keys:
