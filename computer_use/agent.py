@@ -184,15 +184,15 @@ def main():
                     # Extract the subject after the user's mention of a video.
                     subject = ""
                     match = re.search(
-                        r"vid[eé]os?\\s+(?:sur|de|d['’]|que|concernant|à propos de)\\s+(.+)$",
+                        r"vid[eé]os?\s+(?:sur|de|d['’]|que|concernant|à propos de)\s+(.+)$",
                         args.task,
                         re.IGNORECASE,
                     )
                     if match:
-                        subject = match.group(1).strip(" \\t.!?").strip()
+                        subject = match.group(1).strip(" \t.!?").strip()
                         subject = re.sub(r"^(?:l['’]|le |la |les |un |une )", "", subject, flags=re.IGNORECASE)
                     if not subject:
-                        subject_match = re.search(r"informatique\\s+quantique", args.task, re.IGNORECASE)
+                        subject_match = re.search(r"informatique\s+quantique", args.task, re.IGNORECASE)
                         subject = subject_match.group(0) if subject_match else "informatique quantique"
                     decision["url"] = "https://www.youtube.com/results?search_query=" + quote_plus(subject)
                     thought = "Recherche du sujet demandé directement sur YouTube."
