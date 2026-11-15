@@ -200,6 +200,41 @@ def find_latest_file(folder, extension):
     return str(newest[1])
 
 
+
+def _send_windows_hotkey(keys):
+    """Send a key chord through Win32 virtual-key events (not pyautogui's key parser)."""
+    user32 = ctypes.windll.user32
+    modifiers = {
+        "ctrl": 0x11, "shift": 0x10, "alt": 0x12,
+    }
+    special = {
+        "tab": 0x09, "enter": 0x0D, "esc": 0x1B, "space": 0x20,
+        "backspace": 0x08, "delete": 0x2E, "up": 0x26, "down": 0x28,
+        "left": 0x25, "right": 0x27, "home": 0x24, "end": 0x23,
+        "pageup": 0x21, "pagedown": 0x22,
+        "f1": 0x70, "f2": 0x71, "f3": 0x72, "f4": 0x73,
+        "f5": 0x74, "f6": 0x75, "f7": 0x76, "f8": 0x77,
+        "f9": 0x78, "f10": 0x79, "f11": 0x7A, "f12": 0x7B,
+    }
+    virtual_keys = []
+    for key in keys:
+        if key in modifiers:
+            virtual_keys.append(modifiers[key])
+        elif key in special:
+            virtual_keys.append(special[key])
+        elif len(key) == 1 and key.isalpha():
+            virtual_keys.append(ord(key.upper()))
+        elif len(key) == 1 and key.isdigit():
+            virtual_keys.append(ord(key))
+        else:
+            raise ValueError("Touche non prise en charge : " + key)
+    for vk in virtual_keys:
+        user32.keybd_event(vk, 0, 0, 0)
+    time.sleep(0.04)
+    for vk in reversed(virtual_keys):
+        user32.keybd_event(vk, 0, 2, 0)
+
+
 def execute(action, confirm):
     kind = action.get("action")
     if kind == "open_url":
@@ -238,8 +273,8 @@ def execute(action, confirm):
         if "delete" in normalized or "backspace" in normalized:
             if not confirm("L'IA souhaite utiliser une touche de suppression dans l'application active. Autoriser ?"):
                 return "Action refusée par l'utilisateur."
-        pyautogui.hotkey(*normalized)
-        return "Raccourci envoyé : " + "+".join(normalized)
+        _send_windows_hotkey(normalized)
+        return "Raccourci envoyé via Win32 : " + "+".join(normalized)
     if kind == "scroll":
         x, y = normalized_point(action)
         element = _uia_element_at(x, y)
