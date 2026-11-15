@@ -46,6 +46,7 @@ jobs:
           node --check main.js
           node --check computer-use.js
           node --check preload.js
+          node --check cursor-preload.js
           node --check renderer/renderer.js
           node --check renderer/glass.js
 
