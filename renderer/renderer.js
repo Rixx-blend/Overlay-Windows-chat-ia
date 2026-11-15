@@ -1186,6 +1186,38 @@ const computerStop = $('computerStop');
 const computerTask = $('computerTask');
 const computerStatus = $('computerStatus');
 const computerHistory = $('computerHistory');
+const computerCopyReport = $('computerCopyReport');
+let computerReportTask = '';
+let computerReportStartedAt = null;
+let computerReportFinishedAt = null;
+let computerReportEvents = [];
+let computerReportStatus = 'Aucune tâche terminée';
+function recordComputerReportEvent(type, detail, time = new Date().toISOString()) {
+  computerReportEvents.push({ time, type: String(type || 'info'), detail: String(detail || '') });
+}
+function buildComputerReport() {
+  const formatTime = (value) => value ? new Date(value).toLocaleString('fr-FR') : 'Inconnue';
+  const lines = [
+    'RAPPORT COMPUTER USE',
+    '====================',
+    'Demande : ' + (computerReportTask || 'Non renseignée'),
+    'Début : ' + formatTime(computerReportStartedAt),
+    'Fin : ' + formatTime(computerReportFinishedAt),
+    'Résultat final : ' + computerReportStatus,
+    'Nombre d’événements : ' + computerReportEvents.length,
+    '',
+    'JOURNAL COMPLET',
+    '===============',
+  ];
+  computerReportEvents.forEach((event, index) => {
+    lines.push(
+      String(index + 1).padStart(3, '0') + '. [' + formatTime(event.time) + '] ' +
+      event.type.toUpperCase() + ' — ' + event.detail
+    );
+  });
+  return lines.join('\n');
+}
+
 function computerActivityLabel(item) {
   const type = String(item.type || 'info').toLowerCase();
   const detail = String(item.detail || '');
@@ -1278,25 +1310,75 @@ function addComputerHistory(item) {
 computerStart.addEventListener('click', async () => {
   const task = computerTask.value.trim();
   if (!task) { computerStatus.textContent = 'Décris d’abord la tâche.'; return; }
+  computerReportTask = task;
+  computerReportStartedAt = new Date().toISOString();
+  computerReportFinishedAt = null;
+  computerReportEvents = [];
+  computerReportStatus = 'Tâche en cours';
+  recordComputerReportEvent('demande', task);
+  computerCopyReport.hidden = true;
+  computerCopyReport.disabled = true;
+  computerCopyReport.textContent = 'Copier le rapport';
   computerStart.disabled = true; computerStop.disabled = false; computerStatus.textContent = 'Démarrage…';
-  const result = await bridge.computerUseStart(task);
-  if (!result.ok) { computerStatus.textContent = result.error || 'Démarrage impossible.'; computerStart.disabled = false; computerStop.disabled = true; }
+  recordComputerReportEvent('status', 'Démarrage demandé.');
+  try {
+    const result = await bridge.computerUseStart(task);
+    if (!result.ok) {
+      computerStatus.textContent = result.error || 'Démarrage impossible.';
+      computerStart.disabled = false; computerStop.disabled = true;
+      computerReportStatus = computerStatus.textContent;
+      computerReportFinishedAt = new Date().toISOString();
+      recordComputerReportEvent('error', computerReportStatus);
+      computerCopyReport.hidden = false; computerCopyReport.disabled = false;
+    }
+  } catch (error) {
+    computerStatus.textContent = error.message || 'Démarrage impossible.';
+    computerStart.disabled = false; computerStop.disabled = true;
+    computerReportStatus = computerStatus.textContent;
+    computerReportFinishedAt = new Date().toISOString();
+    recordComputerReportEvent('error', computerReportStatus);
+    computerCopyReport.hidden = false; computerCopyReport.disabled = false;
+  }
 });
 computerStop.addEventListener('click', async () => {
   computerStop.disabled = true; computerStatus.textContent = 'Arrêt demandé…'; await bridge.computerUseStop();
 });
+computerCopyReport.addEventListener('click', async () => {
+  const report = buildComputerReport();
+  const result = await bridge.copyComputerReport(report);
+  if (result && result.ok) {
+    computerCopyReport.textContent = 'Rapport copié';
+    setTimeout(() => { computerCopyReport.textContent = 'Copier le rapport'; }, 1800);
+  } else {
+    computerStatus.textContent = (result && result.error) || 'Copie du rapport impossible.';
+  }
+});
 bridge.onComputerUseStatus((state) => {
   computerStatus.textContent = state.message || (state.active ? 'En cours…' : 'Agent inactif');
+  if (state.message) {
+    const last = computerReportEvents[computerReportEvents.length - 1];
+    if (!last || last.type !== 'status' || last.detail !== state.message) {
+      recordComputerReportEvent(state.error ? 'error' : 'status', state.message);
+    }
+  }
   computerStart.disabled = !!state.active; computerStop.disabled = !state.active;
   if (activeComputerBubble && state.message && state.message !== 'Agent inactif.') {
     appendComputerActivity({ type: 'status', detail: state.message });
   }
   if (!state.active) {
+    if (computerReportStartedAt && !computerReportFinishedAt) {
+      computerReportFinishedAt = new Date().toISOString();
+      computerReportStatus = state.message || computerStatus.textContent || 'Tâche terminée';
+      recordComputerReportEvent(state.error ? 'error' : 'fin', computerReportStatus);
+      computerCopyReport.hidden = false;
+      computerCopyReport.disabled = false;
+    }
     if (activeComputerLoader) activeComputerLoader();
     activeComputerLoader = null; activeComputerMainLabel = null; activeComputerFeed = null; activeComputerBubble = null;
   }
 });
 bridge.onComputerUseHistory((item) => {
+  recordComputerReportEvent(item.type || 'info', item.detail || '', item.time || new Date().toISOString());
   addComputerHistory(item);
   appendComputerActivity(item);
   const type = String(item.type || '').toLowerCase();
@@ -1306,7 +1388,9 @@ bridge.onComputerUseHistory((item) => {
 bridge.onComputerUseConfirmation(async (request) => {
   const approved = window.confirm('L’IA demande une validation avant cette action :\n\n' + request.reason + '\n\nAutoriser cette action ?');
   await bridge.computerUseApprove(approved);
-  addComputerHistory({ type: approved ? 'approved' : 'rejected', detail: request.reason });
+  const approvalEvent = { type: approved ? 'approved' : 'rejected', detail: request.reason };
+  recordComputerReportEvent(approvalEvent.type, approvalEvent.detail);
+  addComputerHistory(approvalEvent);
 });
 bridge.computerUseState().then((state) => {
   (state.history || []).forEach(addComputerHistory);
