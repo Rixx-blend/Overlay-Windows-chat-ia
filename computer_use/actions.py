@@ -302,13 +302,29 @@ def execute(action, confirm):
         user32 = ctypes.windll.user32
         if not user32.GetForegroundWindow():
             raise RuntimeError("Aucune fenêtre active pour recevoir le texte.")
+        class KEYBDINPUT(ctypes.Structure):
+            _fields_ = [
+                ("wVk", ctypes.c_ushort), ("wScan", ctypes.c_ushort),
+                ("dwFlags", ctypes.c_ulong), ("time", ctypes.c_ulong),
+                ("dwExtraInfo", ctypes.c_size_t),
+            ]
+        class INPUTUNION(ctypes.Union):
+            _fields_ = [("ki", KEYBDINPUT)]
+        class INPUT(ctypes.Structure):
+            _fields_ = [("type", ctypes.c_ulong), ("union", INPUTUNION)]
+        sent = 0
         for character in value:
             encoded = character.encode("utf-16-le")
             for index in range(0, len(encoded), 2):
                 code_unit = int.from_bytes(encoded[index:index + 2], "little")
-                user32.keybd_event(0, code_unit, 0x0004, 0)
-                user32.keybd_event(0, code_unit, 0x0004 | 0x0002, 0)
-        return "Texte saisi par événements clavier Unicode Windows dans la fenêtre active."
+                for flags in (0x0004, 0x0004 | 0x0002):  # UNICODE down, then key up
+                    packet = INPUT()
+                    packet.type = 1  # INPUT_KEYBOARD
+                    packet.union.ki = KEYBDINPUT(0, code_unit, flags, 0, 0)
+                    if user32.SendInput(1, ctypes.byref(packet), ctypes.sizeof(INPUT)) != 1:
+                        raise RuntimeError("Windows a refusé l'envoi d'une touche Unicode au champ actif.")
+                    sent += 1
+        return "Texte saisi par événements clavier Unicode Windows (" + str(len(value)) + " caractères)."
     if kind == "hotkey":
         keys = action.get("keys")
         if not isinstance(keys, list) or not keys:
