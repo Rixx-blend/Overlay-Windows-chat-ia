@@ -51,7 +51,7 @@ const LAUNCH_RE = /^(?:peux[- ]tu\s+)?(ouvre|ouvrir|lance|lancer|d[ée]marre|d[�
 const ASK_ACTION_RE = /(ouvr|lanc|d[ée]marr|ferm|supprim|effac|install|ex[ée]cut|affich|minimis|maximis|cr[ée]e|renomm|copi|colle)/i;
 const LEVEL_ORDER = ['low', 'high', 'max'];
 let busy = false;
-let activeComputerBubble = null;
+let activeComputerBubble = null;\nlet activeComputerLoader = null;\nlet activeComputerFeed = null;
 let recorder = null;
 let transcribing = false;
 let closeTimer = null;
@@ -373,11 +373,19 @@ function submit() {
   if (startsComputerTask && !simpleLaunch && !pending.length && settings.allowActions) {
     input.value = '';
     addBubble('user', text);
-    activeComputerBubble = addBubble('sys', 'Computer Use : démarrage du moteur local…');
+    startComputerActivityBubble('Préparation du contrôle de l’ordinateur…');
     bridge.computerUseStart(text).then((result) => {
-      if (!result.ok && activeComputerBubble) activeComputerBubble.textContent = result.error || 'Démarrage impossible.';
+      if (!result.ok && activeComputerBubble) {
+        if (activeComputerLoader) activeComputerLoader();
+        activeComputerBubble.textContent = result.error || 'Démarrage impossible.';
+        activeComputerBubble = null; activeComputerFeed = null; activeComputerLoader = null;
+      }
     }).catch((error) => {
-      if (activeComputerBubble) activeComputerBubble.textContent = 'Computer Use : ' + error.message;
+      if (activeComputerBubble) {
+        if (activeComputerLoader) activeComputerLoader();
+        activeComputerBubble.textContent = 'Computer Use : ' + error.message;
+        activeComputerBubble = null; activeComputerFeed = null; activeComputerLoader = null;
+      }
     });
     return;
   }
@@ -1175,11 +1183,64 @@ const computerStop = $('computerStop');
 const computerTask = $('computerTask');
 const computerStatus = $('computerStatus');
 const computerHistory = $('computerHistory');
+function computerActivityLabel(item) {
+  const type = String(item.type || 'info').toLowerCase();
+  const detail = String(item.detail || '');
+  if (type === 'decision') {
+    if (/recherch|search/i.test(detail)) return 'Recherche sur le site web';
+    if (/source|article|page/i.test(detail)) return 'Examine le contenu affiché';
+    return 'Analyse l’écran et prépare la prochaine action';
+  }
+  if (type === 'open_url') return 'Ouvre un site web';
+  if (type === 'open_app') return /blender/i.test(detail) ? 'Ouvre ou réactive Blender' : 'Lance une application';
+  if (type === 'hotkey') return 'Envoie un raccourci clavier';
+  if (type === 'wait') return 'Attend le chargement de l’application';
+  if (type === 'left_click' || type === 'double_click') return 'Active un élément à l’écran';
+  if (type === 'type') return 'Saisit du texte';
+  if (type === 'scroll') return 'Parcourt le contenu affiché';
+  if (type === 'find_latest_file') return 'Recherche un fichier';
+  if (type === 'open_file') return 'Ouvre un fichier';
+  if (type === 'done') return 'Tâche déclarée terminée';
+  if (type === 'error') return 'Une action a échoué';
+  if (type === 'replan') return 'Corrige son plan d’action';
+  if (type === 'status') return detail;
+  return detail || 'Activité en cours';
+}
+function appendComputerActivity(item) {
+  if (!activeComputerFeed) return;
+  const row = document.createElement('div');
+  row.className = 'computer-live-item';
+  const mark = document.createElement('span');
+  mark.className = 'computer-live-mark';
+  const body = document.createElement('span');
+  body.className = 'computer-live-copy';
+  const title = document.createElement('strong');
+  title.textContent = computerActivityLabel(item);
+  const detail = document.createElement('span');
+  detail.className = 'computer-live-detail';
+  detail.textContent = String(item.detail || '').slice(0, 220);
+  body.append(title);
+  if (detail.textContent && detail.textContent !== title.textContent) body.append(detail);
+  row.append(mark, body);
+  activeComputerFeed.prepend(row);
+  while (activeComputerFeed.children.length > 8) activeComputerFeed.lastElementChild.remove();
+}
+function startComputerActivityBubble(label) {
+  activeComputerBubble = addBubble('sys', '');
+  const shell = document.createElement('div');
+  shell.className = 'computer-live';
+  const loader = makeLoader(label);
+  activeComputerLoader = loader.stop;
+  activeComputerFeed = document.createElement('div');
+  activeComputerFeed.className = 'computer-live-feed';
+  shell.append(loader.el, activeComputerFeed);
+  activeComputerBubble.append(shell);
+}
 function addComputerHistory(item) {
   const line = document.createElement('div');
   line.className = 'computer-history-item';
   const time = new Date(item.time || Date.now()).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  line.textContent = time + ' · ' + String(item.type || 'info') + ' — ' + String(item.detail || '').slice(0, 300);
+  line.textContent = time + ' · ' + computerActivityLabel(item) + ' — ' + String(item.detail || '').slice(0, 300);
   computerHistory.prepend(line);
   while (computerHistory.children.length > 40) computerHistory.lastElementChild.remove();
 }
@@ -1197,19 +1258,16 @@ bridge.onComputerUseStatus((state) => {
   computerStatus.textContent = state.message || (state.active ? 'En cours…' : 'Agent inactif');
   computerStart.disabled = !!state.active; computerStop.disabled = !state.active;
   if (activeComputerBubble && state.message && state.message !== 'Agent inactif.') {
-    const status = document.createElement('div');
-    status.textContent = state.message;
-    activeComputerBubble.appendChild(status);
+    appendComputerActivity({ type: 'status', detail: state.message });
   }
-  if (!state.active) activeComputerBubble = null;
+  if (!state.active) {
+    if (activeComputerLoader) activeComputerLoader();
+    activeComputerLoader = null; activeComputerFeed = null; activeComputerBubble = null;
+  }
 });
 bridge.onComputerUseHistory((item) => {
   addComputerHistory(item);
-  if (activeComputerBubble) {
-    const line = document.createElement('div');
-    line.textContent = String(item.type || 'action') + ' — ' + String(item.detail || '').slice(0, 180);
-    activeComputerBubble.appendChild(line);
-  }
+  appendComputerActivity(item);
 });
 bridge.onComputerUseConfirmation(async (request) => {
   const approved = window.confirm('L’IA demande une validation avant cette action :\n\n' + request.reason + '\n\nAutoriser cette action ?');
