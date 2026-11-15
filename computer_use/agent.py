@@ -100,6 +100,8 @@ def main():
     recent_download_path = None
     recent_download_opened = False
     cursor_initialized = False
+    asks_streamlabs_recording = bool(re.search(r"streamlabs", args.task, re.IGNORECASE) and re.search(r"enregistr|record|capture d[’']écran|capture écran", args.task, re.IGNORECASE))
+    streamlabs_launch_requested = False
     last_open_app = ""
     repeated_open_app_count = 0
 
@@ -112,7 +114,9 @@ def main():
                        and re.search(r"bloc[- ]notes|notepad", args.task, re.IGNORECASE) else [])
     switch_index = 0
     expected_app = None
-    if re.search(r"bloc[- ]notes|notepad", args.task, re.IGNORECASE):
+    if asks_streamlabs_recording:
+        expected_app = ("Streamlabs", "Streamlabs Desktop", "Streamlabs OBS")
+    elif re.search(r"bloc[- ]notes|notepad", args.task, re.IGNORECASE):
         expected_app = ("Bloc-notes", "Notepad")
     elif re.search(r"calculatrice|calculator", args.task, re.IGNORECASE):
         expected_app = ("Calculatrice", "Calculator")
@@ -144,6 +148,13 @@ def main():
             decision = brain.decide(args.task, history, screenshots)
             action = decision.get("action")
             thought = str(decision.get("thought") or "").strip()[:400]
+            # Route explicit Streamlabs recording requests to the desktop app first;
+            # never let a small vision model reinterpret the product as a website.
+            if asks_streamlabs_recording and not streamlabs_launch_requested:
+                decision = {"action": "open_app", "app": "Streamlabs Desktop",
+                            "thought": "Lancement de l’application Streamlabs Desktop avant de repérer le contrôle d’enregistrement local."}
+                action = decision["action"]
+                thought = decision["thought"]
 
             # Deterministic routing for clear Windows file/folder requests.
             task_folded = args.task.casefold()
@@ -377,6 +388,11 @@ def main():
                     if app_center:
                         emit("cursor", x=app_center[0], y=app_center[1], action="move")
                 result = execute(decision, confirm, expected_app=expected_app)
+                if action == "open_app" and asks_streamlabs_recording and str(decision.get("app", "")).casefold().startswith("streamlabs"):
+                    streamlabs_launch_requested = True
+                    emit("status", active=True, message="Streamlabs ouvert : attente de stabilisation avant de repérer le bouton d’enregistrement…")
+                    time.sleep(3.0)
+                    continue
                 if action == "open_app":
                     app_center = get_app_window_center(decision.get("app", ""))
                     if app_center:
