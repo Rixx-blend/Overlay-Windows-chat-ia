@@ -218,8 +218,6 @@ def main():
                 parsed_url = urlparse(raw_url)
                 # A search phrase is not a URL. Convert it to a real Google search URL.
                 if raw_url and (" " in raw_url or parsed_url.scheme not in {"http", "https"} and "." not in raw_url.split("/")[0]):
-                    if any(word in task_lower_for_url if False else False for word in ()):
-                        pass
                     if re.search(r"\\b(recherche|rechercher|cherche|search|google)\\b", args.task, re.IGNORECASE):
                         query = raw_url if len(raw_url.split()) <= 8 else re.sub(r"^.*?\\b(?:recherche|rechercher|cherche|search)\\s+", "", args.task, flags=re.IGNORECASE)
                         decision["url"] = "https://www.google.com/search?q=" + quote_plus(query.strip(" «»\"'"))
