@@ -63,8 +63,7 @@ def _uia_invoke(element):
     )
 
 
-def _activate_existing_window(title_fragment):
-    """Restore and focus an already-running app window."""
+def _find_window(title_fragment):
     user32 = ctypes.windll.user32
     matches = []
 
@@ -82,22 +81,50 @@ def _activate_existing_window(title_fragment):
         return True
 
     user32.EnumWindows(enum_callback, 0)
-    if not matches:
+    return matches[0] if matches else None
+
+
+def _activate_existing_window(title_fragment):
+    """Restore and focus an already-running app window."""
+    user32 = ctypes.windll.user32
+    hwnd = _find_window(title_fragment)
+    if not hwnd:
         return False
-    hwnd = matches[0]
     if user32.IsIconic(hwnd):
         user32.ShowWindow(hwnd, 9)
     user32.SetForegroundWindow(hwnd)
-    time.sleep(0.4)
-    return True
+    time.sleep(0.8)
+    return user32.GetForegroundWindow() == hwnd
+
+
+def _wait_for_blender_ready(timeout=90):
+    """Wait for Blender's actual top-level window, focus it, then allow its UI to settle."""
+    deadline = time.monotonic() + timeout
+    user32 = ctypes.windll.user32
+    while time.monotonic() < deadline:
+        hwnd = _find_window("Blender")
+        if hwnd:
+            if user32.IsIconic(hwnd):
+                user32.ShowWindow(hwnd, 9)
+            user32.SetForegroundWindow(hwnd)
+            time.sleep(0.8)
+            if user32.GetForegroundWindow() == hwnd:
+                # Blender may show its splash/loading screen before the viewport is usable.
+                time.sleep(4.0)
+                return True
+        time.sleep(0.75)
+    raise TimeoutError("Blender n'a pas affiché de fenêtre active après 90 secondes.")
 
 
 def launch_app(name):
     name = str(name or "").strip()[:80]
     if not name:
         raise ValueError("Nom d'application manquant.")
-    if "blender" in name.casefold() and _activate_existing_window("Blender"):
-        return "Fenêtre Blender existante réactivée."
+    is_blender = "blender" in name.casefold()
+    if is_blender and _activate_existing_window("Blender"):
+        if not _wait_for_blender_ready():
+            raise RuntimeError("Impossible de confirmer que Blender est au premier plan.")
+        return "Fenêtre Blender existante réactivée ; chargement de l'interface attendu et focus vérifié."
     escaped = name.replace("'", "''")
     script = (
         "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(); $OutputEncoding = [Console]::OutputEncoding; "
@@ -119,7 +146,11 @@ def launch_app(name):
     )
     if result.returncode:
         raise RuntimeError((result.stderr or result.stdout or "Lancement impossible.").strip()[:500])
-    return (result.stdout or "Lancement demandé.").strip()
+    launch_message = (result.stdout or "Lancement demandé.").strip()
+    if is_blender:
+        _wait_for_blender_ready()
+        return launch_message + " ; fenêtre Blender détectée, chargement de l'interface terminé et focus vérifié."
+    return launch_message
 
 
 def _normalize_folder_name(value):
