@@ -88,9 +88,9 @@ def main():
     repeated_errors = {}
     invalid_plan_count = 0
     blender_delete_task = (
-        bool(re.search(r"\\bblender\\b", args.task, re.IGNORECASE))
-        and bool(re.search(r"\\b(supprime|supprimer|efface|effacer|delete|remove)\\b", args.task, re.IGNORECASE))
-        and bool(re.search(r"\\b(cube|objet)\\b", args.task, re.IGNORECASE))
+        bool(re.search(r"\bblender\\b", args.task, re.IGNORECASE))
+        and bool(re.search(r"\b(supprime|supprimer|efface|effacer|delete|remove)\\b", args.task, re.IGNORECASE))
+        and bool(re.search(r"\b(cube|objet)\\b", args.task, re.IGNORECASE))
     )
     blender_x_sent = False
     blender_enter_sent = False
