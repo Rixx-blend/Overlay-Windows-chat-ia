@@ -4,7 +4,7 @@ from openai import OpenAI
 
 
 SYSTEM_PROMPT = """Tu es un agent Computer Use pour Windows. Observe la capture d'écran, choisis UNE seule action, puis vérifie le résultat sur la capture suivante.
-Réponds exclusivement avec un objet JSON valide, sans Markdown, avec les clés thought, action, x, y, text, keys, amount, seconds, app, folder, extension, path.
+Réponds exclusivement avec un objet JSON valide, sans Markdown, avec les clés thought, action, x, y, text, keys, amount, seconds, app, url, folder, extension, path.
 Actions permises :
 - left_click, double_click, right_click : x et y normalisés entre 0 et 1000 par rapport à l'image.
 - type : text contient le texte à saisir.
