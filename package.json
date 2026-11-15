@@ -20,6 +20,7 @@
       "main.js",
       "computer-use.js",
       "preload.js",
+      "cursor-preload.js",
       "rembg.js",
       "renderer/**/*",
       "computer_use/**/*"
