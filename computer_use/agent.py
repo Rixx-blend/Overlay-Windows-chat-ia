@@ -107,6 +107,38 @@ def main():
             action = decision.get("action")
             thought = str(decision.get("thought") or "").strip()[:400]
 
+            # Recover from a common planner error: a website was emitted as an app,
+            # or open_app was returned without the required app name.
+            if action == "open_app":
+                app_name = str(decision.get("app") or "").strip()
+                site_map = {
+                    "youtube": "https://www.youtube.com",
+                    "google": "https://www.google.com",
+                    "wikipedia": "https://fr.wikipedia.org",
+                    "amazon": "https://www.amazon.fr",
+                    "twitch": "https://www.twitch.tv",
+                    "reddit": "https://www.reddit.com",
+                    "instagram": "https://www.instagram.com",
+                    "facebook": "https://www.facebook.com",
+                    "tiktok": "https://www.tiktok.com",
+                    "netflix": "https://www.netflix.com",
+                    "spotify": "https://open.spotify.com",
+                    "discord": "https://discord.com/app",
+                    "gmail": "https://mail.google.com",
+                    "outlook": "https://outlook.live.com",
+                }
+                normalized_app = app_name.casefold().strip()
+                if normalized_app in site_map:
+                    decision = {"action": "open_url", "url": site_map[normalized_app],
+                                "thought": "Il s'agit d'un site Web : ouverture dans le navigateur, pas lancement d'une application Windows."}
+                    action = "open_url"
+                    thought = decision["thought"]
+                elif not app_name:
+                    history.append("ERREUR DE PLANIFICATION : open_app exige un nom d'application. La tâche peut concerner un site Web ou le navigateur déjà ouvert. Observe la capture et choisis open_url pour un site, ou une action de navigation dans le navigateur existant. Ne répète pas open_app sans nom.")
+                    emit("history", item={"time": datetime.now(timezone.utc).isoformat(), "type": "replan", "detail": "Action incomplète : nouvelle décision demandée au modèle."})
+                    emit("status", active=True, message="Correction de la décision…")
+                    continue
+
             # Correct a common vision-model mistake: treating Downloads itself as a file.
             task_lower = args.task.casefold()
             asks_for_png_in_downloads = (
