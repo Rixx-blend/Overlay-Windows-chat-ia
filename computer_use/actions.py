@@ -46,6 +46,9 @@ user32.GetWindowTextW.restype = ctypes.c_int
 user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.c_void_p]
 user32.GetWindowRect.restype = wintypes.BOOL
 kernel32.GetCurrentThreadId.restype = wintypes.DWORD
+EnumWindowsProc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+user32.EnumWindows.argtypes = [EnumWindowsProc, wintypes.LPARAM]
+user32.EnumWindows.restype = wintypes.BOOL
 
 
 pyautogui.FAILSAFE = True
@@ -110,7 +113,7 @@ def _uia_invoke(element):
 def _find_window(title_fragment):
     matches = []
 
-    @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+    @EnumWindowsProc
     def enum_callback(hwnd, _):
         if not user32.IsWindowVisible(hwnd):
             return True
