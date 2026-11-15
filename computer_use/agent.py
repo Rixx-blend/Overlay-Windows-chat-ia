@@ -106,6 +106,27 @@ def main():
             decision = brain.decide(args.task, history, screenshots)
             action = decision.get("action")
             thought = str(decision.get("thought") or "").strip()[:400]
+
+            # Correct a common vision-model mistake: treating Downloads itself as a file.
+            task_lower = args.task.casefold()
+            asks_for_png_in_downloads = (
+                ("png" in task_lower or "fichier" in task_lower)
+                and ("telechargements" in task_lower or "téléchargements" in task_lower or "downloads" in task_lower)
+                and any(word in task_lower for word in ("dernier", "dernière", "chercher", "trouver", "rechercher"))
+            )
+            if action == "open_file" and asks_for_png_in_downloads:
+                candidate = str(decision.get("path") or "").strip().rstrip("\\\\/")
+                folder_name = Path(candidate).name.casefold()
+                if folder_name in {"téléchargements", "telechargements", "downloads", "download"}:
+                    decision = {
+                        "action": "find_latest_file",
+                        "folder": "Téléchargements",
+                        "extension": ".png",
+                        "thought": "Je recherche le dernier PNG dans Téléchargements, sans essayer d'ouvrir le dossier."
+                    }
+                    action = decision["action"]
+                    thought = decision["thought"]
+
             emit("history", item={"time": datetime.now(timezone.utc).isoformat(), "type": "decision", "detail": thought or str(action)})
             if action == "done":
                 emit("history", item={"time": datetime.now(timezone.utc).isoformat(), "type": "done", "detail": thought or "Tâche terminée."})
