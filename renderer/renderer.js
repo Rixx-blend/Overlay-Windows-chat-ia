@@ -30,6 +30,7 @@ const PLACEHOLDER = "Demander n'importe quoi...";
 let imageMode = false;
 let computerUseMode = false;
 let describeImageAfterGeneration = false;
+let imageGenerationSucceeded = false;
 let imageProgressLabel = null;
 let lastGeneratedImagePath = null;
 let lastGeneratedImageDataUrl = null;
@@ -376,7 +377,10 @@ function submit() {
   const simpleLaunch = !!lancer &&
     !/\b(?:et|puis|ensuite|dossier|fichier|t[ée]l[ée]chargements?|downloads?|bureau|documents?|images?|png|jpe?g|trouve|cherche|supprime|efface|clique|d[ée]place|renomme|copie|colle)\b/i.test(lancer[2]);
   const startsComputerTask = /^(?:peux[- ]tu\s+)?(?:ouvre|ouvrir|lance|lancer|d[ée]marre|d[ée]marrer|trouve|chercher|cherche|recherche|supprime|supprimer|efface|effacer|clique|cliquer|d[ée]place|renomme|copie|colle)\b/i.test(text);
-  if (computerUseMode && startsComputerTask && !simpleLaunch && !pending.length && settings.allowActions) {
+  const explicitChatRequest = /^(?:explique|explique-moi|rédige|r[eé]dige-moi|d[eé]cris|d[eé]cris-moi|r[eé]sume|traduis|corrige|reformule|compare|calcule|quelle est|qu'est-ce que|pourquoi|comment fonctionne|donne-moi une explication)\b/i.test(text);
+  const shouldUseComputer = !imageMode && imagePrompt === null && !pending.length && settings.allowActions
+    && !explicitChatRequest && (computerUseMode || (startsComputerTask && !simpleLaunch));
+  if (shouldUseComputer) {
     input.value = '';
     addBubble('user', text);
     startComputerActivityBubble('Préparation du contrôle de l’ordinateur…', text);
@@ -998,6 +1002,7 @@ function createImageReveal(image) {
 
 async function generateImageInChat(prompt, referenceImages = []) {
   describeImageAfterGeneration = computerUseMode;
+  imageGenerationSucceeded = false;
   const cleanPrompt = String(prompt || '').trim();
   if (!cleanPrompt || busy) return;
   busy = true;
@@ -1112,6 +1117,7 @@ async function generateImageInChat(prompt, referenceImages = []) {
     }, !generatedPath);
     current.replaceChildren(imageReveal, caption, actions);
     messages.push({ role: 'assistant', content: 'Image générée avec succès.' });
+    imageGenerationSucceeded = true;
   } catch (err) {
     if (stopLoader) { stopLoader(); stopLoader = null; }
     imageProgressLabel = null;
@@ -1123,8 +1129,9 @@ async function generateImageInChat(prompt, referenceImages = []) {
     current = null;
     chat.scrollTop = chat.scrollHeight;
     scheduleClose();
-    if (describeImageAfterGeneration && lastGeneratedImageDataUrl) {
+    if (describeImageAfterGeneration && imageGenerationSucceeded && lastGeneratedImageDataUrl) {
       describeImageAfterGeneration = false;
+      imageGenerationSucceeded = false;
       messages.push({ role: 'user', content: 'Rédige une description claire et détaillée de la dernière image générée. Décris les éléments visibles, la composition, les couleurs, la lumière et l’ambiance. Ne prétends pas voir des détails qui ne sont pas visibles.' });
       startAI();
     }
