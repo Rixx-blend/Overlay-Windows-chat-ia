@@ -134,6 +134,7 @@ function createWindow() {
     y: Math.round(workArea.y + workArea.height * 0.2),
     frame: false,
     transparent: true,
+    backgroundColor: '#00000000',
     resizable: false,
     skipTaskbar: false,
     alwaysOnTop: true,
@@ -161,8 +162,22 @@ function createWindow() {
   });
   win.on('move', sendGeometry);
   win.on('show', () => {
+    if (!win || win.isDestroyed()) return;
+    // Re-assert Electron's transparent surface after Windows restores a hidden window.
+    win.setBackgroundColor('#00000000');
+    win.setContentProtection(liveGlass);
     sendGeometry();
-    win.webContents.send('visibility', true);
+    if (!win.webContents.isLoading()) {
+      win.webContents.send('visibility', true);
+      win.webContents.send('mode', liveGlass);
+    } else {
+      win.webContents.once('did-finish-load', () => {
+        if (!win || win.isDestroyed()) return;
+        sendGeometry();
+        win.webContents.send('visibility', true);
+        win.webContents.send('mode', liveGlass);
+      });
+    }
   });
   win.on('hide', () => win.webContents.send('visibility', false));
   // Fermer la fenêtre masque l'overlay sans tuer le processus :
