@@ -554,8 +554,71 @@ def _send_windows_hotkey(keys):
         user32.keybd_event(vk, 0, 2, 0)
 
 
+def _open_images_large_icons():
+    """Open the user's Pictures known folder in Explorer and select Large icons."""
+    subprocess.Popen(
+        ["explorer.exe", "shell:My Pictures"],
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    deadline = time.monotonic() + 12
+    last_error = ""
+    while time.monotonic() < deadline:
+        hwnd = _find_explorer_window()
+        if hwnd and _force_foreground(hwnd) and _is_foreground_window(hwnd):
+            time.sleep(0.8)  # let Explorer finish navigating to the known folder
+            _send_windows_hotkey(["ctrl", "shift", "2"])  # File Explorer: Large icons
+            time.sleep(0.5)
+            if _is_foreground_window(hwnd):
+                return "Explorateur ouvert dans Images ; affichage Grandes icônes demandé par Ctrl+Maj+2."
+        else:
+            last_error = "aucune fenêtre Explorer active détectée"
+        time.sleep(0.25)
+    raise RuntimeError("Impossible d'activer l'Explorateur pour ouvrir Images. " + last_error)
+
+
+def _get_top_memory_apps():
+    """Return the three visible desktop applications with the largest working sets."""
+    script = (
+        "$ErrorActionPreference='Stop'; "
+        "$rows = Get-Process | Where-Object { $_.MainWindowHandle -ne 0 } | "
+        "Group-Object ProcessName | ForEach-Object { "
+        "$g=$_.Group; $title=($g | Where-Object { $_.MainWindowTitle } | Select-Object -First 1).MainWindowTitle; "
+        "[pscustomobject]@{ Application=$_.Name; Window=$title; MemoryMB=[math]::Round((($g | Measure-Object WorkingSet64 -Sum).Sum / 1MB),1) } "
+        "} | Sort-Object MemoryMB -Descending | Select-Object -First 3; "
+        "$rows | ConvertTo-Json -Compress"
+    )
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        timeout=20, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    if result.returncode:
+        raise RuntimeError((result.stderr or result.stdout or "Lecture mémoire impossible.").strip()[:400])
+    raw = (result.stdout or "").strip()
+    if not raw:
+        raise RuntimeError("Windows n'a retourné aucune application avec une fenêtre visible.")
+    import json
+    data = json.loads(raw)
+    rows = data if isinstance(data, list) else [data]
+    rows = [row for row in rows if isinstance(row, dict) and row.get("Application")]
+    if not rows:
+        raise RuntimeError("Aucune application visible n'a pu être classée par mémoire.")
+    lines = []
+    for index, row in enumerate(rows[:3], 1):
+        title = str(row.get("Window") or "").strip()
+        suffix = (" — " + title[:90]) if title else ""
+        lines.append(str(index) + ". " + str(row["Application"]) + " — " + str(row.get("MemoryMB", "?")) + " Mo" + suffix)
+    if len(lines) < 3:
+        raise RuntimeError("Seulement " + str(len(lines)) + " applications visibles trouvées ; impossible de confirmer un top 3.")
+    return "Top 3 des applications visibles par mémoire utilisée (Working Set) :\\n" + "\\n".join(lines)
+
+
 def execute(action, confirm, expected_app=None):
     kind = action.get("action")
+    if kind == "open_images_large_icons":
+        return _open_images_large_icons()
+    if kind == "get_top_memory_apps":
+        return _get_top_memory_apps()
     if kind == "open_url":
         url = str(action.get("url") or "").strip()[:2048]
         parsed = urlparse(url)
