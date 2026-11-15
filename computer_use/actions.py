@@ -21,7 +21,8 @@ ALLOWED_KEYS = {
     "delete", "up", "down", "left", "right", "home", "end", "pageup",
     "pagedown", "l", "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9",
     "f10", "f11", "f12", "a", "c", "v", "x", "z", "s", "w", "n", "o",
-}
+    "multiply", "add", "subtract", "divide", "decimal",
+} | set("0123456789")
 
 
 def normalized_point(action):
@@ -277,6 +278,8 @@ def _send_windows_hotkey(keys):
         "f1": 0x70, "f2": 0x71, "f3": 0x72, "f4": 0x73,
         "f5": 0x74, "f6": 0x75, "f7": 0x76, "f8": 0x77,
         "f9": 0x78, "f10": 0x79, "f11": 0x7A, "f12": 0x7B,
+        "multiply": 0x6A, "add": 0x6B, "subtract": 0x6D,
+        "decimal": 0x6E, "divide": 0x6F,
     }
     virtual_keys = []
     for key in keys:
