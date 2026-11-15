@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('api', {
   computerUseStop: () => ipcRenderer.invoke('computer-use-stop'),
   computerUseApprove: (approved) => ipcRenderer.invoke('computer-use-approve', approved),
   computerUseState: () => ipcRenderer.invoke('computer-use-state'),
+  copyComputerReport: (report) => ipcRenderer.invoke('copy-computer-report', report),
   onComputerUseStatus: (cb) => on('computer-use-status', cb),
   onComputerUseHistory: (cb) => on('computer-use-history', cb),
   onComputerUseConfirmation: (cb) => on('computer-use-confirmation', cb),
