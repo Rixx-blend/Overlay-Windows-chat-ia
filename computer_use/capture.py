@@ -38,6 +38,8 @@ def capture_screen(add_grid=False):
         "height": image.height,
         "screen_width": original_size[0],
         "screen_height": original_size[1],
+        "screen_left": shot.left,
+        "screen_top": shot.top,
     }
 
 
