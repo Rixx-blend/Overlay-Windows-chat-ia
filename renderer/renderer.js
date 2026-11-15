@@ -1191,7 +1191,7 @@ function computerActivityLabel(item) {
   const detail = String(item.detail || '');
   if (type === 'observation') return 'Observe et lit les éléments visibles à l’écran';
   if (type === 'decision') {
-    if (/recherch|search/i.test(detail)) return 'Recherche sur le site web';
+    if (/(?:recherch|search).{0,24}(?:web|google|internet|site)|(?:web|google|internet|site).{0,24}(?:recherch|search)/i.test(detail)) return 'Recherche sur le site web';
     if (/source|article|page/i.test(detail)) return 'Examine le contenu affiché';
     return 'Analyse l’écran et prépare la prochaine action';
   }
