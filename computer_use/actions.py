@@ -639,7 +639,7 @@ def execute(action, confirm, expected_app=None):
                 pattern = current.iface_scroll
                 direction = 3 if amount > 0 else 1  # LargeIncrement / LargeDecrement
                 for _ in range(max(1, min(6, abs(amount)))):
-                    pattern.Scroll(2, direction)  # horizontal NoAmount, vertical direction
+                    pattern.Scroll(0, direction)  # horizontal NoAmount, vertical direction
                 return "Défilement effectué via UI Automation sur le contrôle ou son conteneur."
             except Exception:
                 try:
