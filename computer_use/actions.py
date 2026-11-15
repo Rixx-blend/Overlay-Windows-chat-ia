@@ -680,6 +680,33 @@ def execute(action, confirm, expected_app=None):
             return "Défilement de secours effectué par PageUp/PageDown après focus UI Automation."
         except Exception as exc:
             raise RuntimeError("Défilement impossible : ni ScrollPattern sur le conteneur, ni focus clavier. " + str(exc)[:120])
+    if kind == "get_windows_version":
+        import winreg
+        key_path = r"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion"
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path) as key:
+            def read_value(name, default=""):
+                try:
+                    return str(winreg.QueryValueEx(key, name)[0])
+                except OSError:
+                    return default
+            product = read_value("ProductName", "Windows")
+            display_version = read_value("DisplayVersion", "")
+            build = read_value("CurrentBuildNumber", read_value("CurrentBuild", ""))
+            revision = read_value("UBR", "")
+            edition = read_value("EditionID", "")
+        try:
+            if int(build) >= 22000 and "Windows 10" in product:
+                product = product.replace("Windows 10", "Windows 11", 1)
+        except ValueError:
+            pass
+        version_text = product
+        if edition and edition.casefold() not in product.casefold():
+            version_text += " (" + edition + ")"
+        if display_version:
+            version_text += " — version " + display_version
+        if build:
+            version_text += " — build " + build + (("." + revision) if revision else "")
+        return "Version Windows détectée dans le Registre : " + version_text
     if kind == "wait":
         seconds = max(0.2, min(5.0, float(action.get("seconds", 1))))
         time.sleep(seconds)
