@@ -992,9 +992,12 @@ details.sources .source-link:hover { opacity: 1; }
 .computer-report-copy {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
+  gap: 0;
+  width: 28px;
+  height: 26px;
   margin: 8px 0 0 2px;
-  padding: 5px 8px;
+  padding: 0;
   border: 1px solid rgba(35, 35, 42, .12);
   border-radius: 8px;
   background: rgba(255, 255, 255, .34);
