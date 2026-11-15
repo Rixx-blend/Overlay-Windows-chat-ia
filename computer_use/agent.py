@@ -96,6 +96,13 @@ def main():
     blender_enter_sent = False
     blender_enter_step = -1
     calculator_opened = False
+    calculator_sent = False
+    cursor_initialized = False
+    expected_app = None
+    if re.search(r"bloc[- ]notes|notepad", args.task, re.IGNORECASE):
+        expected_app = ("Bloc-notes", "Notepad")
+    elif re.search(r"calculatrice|calculator", args.task, re.IGNORECASE):
+        expected_app = ("Calculatrice", "Calculator")
     log_dir = Path(args.logs)
     log_dir.mkdir(parents=True, exist_ok=True)
     emit("status", active=True, message="Initialisation du moteur Python…")
@@ -116,6 +123,9 @@ def main():
             # Display the AI cursor from the start of each observation, not only on clicks.
             screenshots.append(shot["data_url"])
             screenshots = screenshots[-2:]
+            if not cursor_initialized:
+                emit("cursor", x=shot["screen_width"] // 2, y=shot["screen_height"] // 2, action="observe")
+                cursor_initialized = True
             emit("history", item={"time": datetime.now(timezone.utc).isoformat(), "type": "observation", "detail": "Capture d’écran actualisée et transmise au modèle visuel pour examiner les éléments visibles."})
             decision = brain.decide(args.task, history, screenshots)
             action = decision.get("action")
@@ -137,9 +147,16 @@ def main():
                 bool(re.search(r"calculatrice|calculator", task_folded))
                 and bool(re.search(r"calcul|calcule|calculer|compute", task_folded))
             )
+            calculator_match = re.search(r"(\\d{1,12})\\s*[×xX*]\\s*(\\d{1,12})", args.task)
+            calculator_expression = (calculator_match.group(1) + "×" + calculator_match.group(2)) if calculator_match else ""
             if asks_calculator and not calculator_opened:
                 decision = {"action": "open_app", "app": "Calculatrice",
-                            "thought": "Ouverture de la Calculatrice Windows."}
+                            "thought": "Ouverture et activation de la Calculatrice Windows."}
+                action = decision["action"]
+                thought = decision["thought"]
+            elif asks_calculator and calculator_opened and calculator_expression and not calculator_sent:
+                decision = {"action": "calculate", "expression": calculator_expression,
+                            "thought": "Saisie du calcul dans la Calculatrice, touche par touche."}
                 action = decision["action"]
                 thought = decision["thought"]
 
@@ -169,7 +186,7 @@ def main():
                     continue
 
             # Reject invented natural-language actions before they reach the executor.
-            allowed_actions = {"left_click", "double_click", "type", "hotkey", "scroll", "wait", "open_app", "open_url", "find_latest_file", "open_file", "done"}
+            allowed_actions = {"left_click", "double_click", "type", "hotkey", "scroll", "wait", "open_app", "open_url", "find_latest_file", "open_file", "calculate", "done"}
             if action not in allowed_actions:
                 invalid_plan_count += 1
                 error_detail = "Action non autorisée retournée par le modèle : " + str(action)[:100]
@@ -305,7 +322,7 @@ def main():
                 if action in {"left_click", "double_click", "scroll"}:
                     emit("cursor", x=round(float(decision.get("x", 0)) * shot["screen_width"] / 1000),
                          y=round(float(decision.get("y", 0)) * shot["screen_height"] / 1000), action=action)
-                result = execute(decision, confirm)
+                result = execute(decision, confirm, expected_app=expected_app)
                 if blender_delete_task and action == "hotkey":
                     sent_keys = [str(key).lower() for key in (decision.get("keys") or [])]
                     if sent_keys == ["x"]:
@@ -317,8 +334,19 @@ def main():
                         emit("status", active=True, message="Blender : confirmation envoyée, nouvelle capture pour vérifier la scène…")
                 if asks_calculator and action == "open_app" and str(decision.get("app", "")).casefold() == "calculatrice":
                     calculator_opened = True
-                    emit("status", active=True, message="Calculatrice ouverte : lecture de l’écran avant la saisie du calcul…")
+                    emit("status", active=True, message="Calculatrice ouverte et activée : préparation du calcul…")
                     time.sleep(1.0)
+                if asks_calculator and action == "calculate":
+                    calculator_sent = True
+                    emit("status", active=True, message="Calcul saisi : vérification visuelle du résultat…")
+                    time.sleep(0.8)
+                if action == "find_latest_file":
+                    filename = Path(result).name
+                    detail = "Fichier le plus récent dans Téléchargements : " + filename
+                    emit("history", item={"time": datetime.now(timezone.utc).isoformat(), "type": "done", "detail": detail})
+                    emit("status", active=False, message=detail)
+                    stop_event.set()
+                    break
                 if blender_delete_task and action == "open_app":
                     emit("status", active=True, message="Blender détecté : attente de stabilisation de la vue 3D…")
                     time.sleep(2.0)
