@@ -1,5 +1,7 @@
 import os
 import ctypes
+from ctypes import wintypes
+import difflib
 import subprocess
 import time
 import unicodedata
@@ -11,6 +13,39 @@ from pathlib import Path
 import pyautogui
 import pyperclip
 from pywinauto import Desktop
+
+# Déclare explicitement les signatures Win32 : sans restype HWND, ctypes tronque
+# les handles 64 bits en entier 32 bits et les vérifications de focus deviennent fausses.
+user32 = ctypes.WinDLL("user32", use_last_error=True)
+kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+user32.GetForegroundWindow.restype = wintypes.HWND
+user32.GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
+user32.GetAncestor.restype = wintypes.HWND
+user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+user32.IsWindowVisible.argtypes = [wintypes.HWND]
+user32.IsWindowVisible.restype = wintypes.BOOL
+user32.IsIconic.argtypes = [wintypes.HWND]
+user32.IsIconic.restype = wintypes.BOOL
+user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+user32.ShowWindow.restype = wintypes.BOOL
+user32.BringWindowToTop.argtypes = [wintypes.HWND]
+user32.BringWindowToTop.restype = wintypes.BOOL
+user32.SetForegroundWindow.argtypes = [wintypes.HWND]
+user32.SetForegroundWindow.restype = wintypes.BOOL
+user32.AttachThreadInput.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.BOOL]
+user32.AttachThreadInput.restype = wintypes.BOOL
+user32.SetActiveWindow.argtypes = [wintypes.HWND]
+user32.SetActiveWindow.restype = wintypes.HWND
+user32.SetFocus.argtypes = [wintypes.HWND]
+user32.SetFocus.restype = wintypes.HWND
+user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
+user32.GetWindowTextLengthW.restype = ctypes.c_int
+user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+user32.GetWindowTextW.restype = ctypes.c_int
+user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.c_void_p]
+user32.GetWindowRect.restype = wintypes.BOOL
+kernel32.GetCurrentThreadId.restype = wintypes.DWORD
 
 
 pyautogui.FAILSAFE = True
@@ -73,7 +108,7 @@ def _uia_invoke(element):
 
 
 def _find_window(title_fragment):
-    user32 = ctypes.windll.user32
+    user32 = user32
     matches = []
 
     @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
@@ -95,7 +130,7 @@ def _find_window(title_fragment):
 
 def _activate_existing_window(title_fragment):
     """Restore and focus an already-running app window."""
-    user32 = ctypes.windll.user32
+    user32 = user32
     hwnd = _find_window(title_fragment)
     if not hwnd:
         return False
@@ -105,23 +140,55 @@ def _activate_existing_window(title_fragment):
     time.sleep(0.8)
     return user32.GetForegroundWindow() == hwnd
 
+def _canonical_app_name(name):
+    raw = str(name or "").strip()
+    folded = unicodedata.normalize("NFKD", raw).encode("ascii", "ignore").decode("ascii").casefold()
+    compact = " ".join(folded.replace("_", " ").replace("-", " ").split())
+    if any(token in compact for token in ("bloc notes", "notepad", "bloge notes", "blog notes", "bloc note")):
+        return "Bloc-notes"
+    if any(token in compact for token in ("calculatrice", "calculator", "calculette")):
+        return "Calculatrice"
+    if "chrome" in compact:
+        return "Google Chrome"
+    if "edge" in compact:
+        return "Microsoft Edge"
+    # Tolère les petites erreurs de transcription sans choisir une application
+    # arbitraire parmi les noms installés.
+    candidates = [("bloc notes", "Bloc-notes"), ("calculatrice", "Calculatrice")]
+    for target, canonical in candidates:
+        if difflib.SequenceMatcher(None, compact, target).ratio() >= 0.76:
+            return canonical
+    return raw
+
+
 def _app_title_aliases(name):
-    folded = str(name or "").casefold()
-    if any(token in folded for token in ("bloc-notes", "bloc notes", "notepad")):
+    canonical = _canonical_app_name(name)
+    folded = canonical.casefold()
+    if folded == "bloc-notes":
         return ("Bloc-notes", "Notepad")
-    if any(token in folded for token in ("calculatrice", "calculator")):
+    if folded == "calculatrice":
         return ("Calculatrice", "Calculator")
-    if "chrome" in folded:
-        return ("Google Chrome",)
-    if "edge" in folded:
-        return ("Microsoft Edge",)
-    return (str(name or "").strip(),)
+    if folded == "google chrome":
+        return ("Google Chrome", "Chrome")
+    if folded == "microsoft edge":
+        return ("Microsoft Edge", "Edge")
+    return (canonical,)
+
+
+def _is_foreground_window(hwnd):
+    foreground = user32.GetForegroundWindow()
+    if not foreground:
+        return False
+    if foreground == hwnd:
+        return True
+    # Certaines applications WinUI exposent une fenêtre enfant distincte de la
+    # fenêtre racine réellement activée.
+    return (user32.GetAncestor(foreground, 2) == hwnd
+            or user32.GetAncestor(foreground, 3) == hwnd)
 
 
 def _force_foreground(hwnd):
-    """Request foreground activation even when Python was started in the background."""
-    user32 = ctypes.windll.user32
-    kernel32 = ctypes.windll.kernel32
+    """Restore, focus and verify the real top-level window handle."""
     target_thread = user32.GetWindowThreadProcessId(hwnd, None)
     current_thread = kernel32.GetCurrentThreadId()
     attached = False
@@ -134,8 +201,16 @@ def _force_foreground(hwnd):
         if attached:
             user32.SetActiveWindow(hwnd)
             user32.SetFocus(hwnd)
-        time.sleep(0.35)
-        return user32.GetForegroundWindow() == hwnd
+        time.sleep(0.25)
+        if _is_foreground_window(hwnd):
+            return True
+        # UI Automation focus is a useful second path for WinUI/UWP windows.
+        try:
+            Desktop(backend="uia").window(handle=int(hwnd)).set_focus()
+            time.sleep(0.25)
+        except Exception:
+            pass
+        return _is_foreground_window(hwnd)
     finally:
         if attached:
             user32.AttachThreadInput(current_thread, target_thread, False)
@@ -155,7 +230,7 @@ def _activate_app_window(name, timeout=15):
 
 def get_app_window_center(name):
     """Return the center of the requested app window in physical screen pixels."""
-    user32 = ctypes.windll.user32
+    user32 = user32
     for title in _app_title_aliases(name):
         hwnd = _find_window(title)
         if hwnd:
@@ -169,7 +244,7 @@ def get_app_window_center(name):
 
 
 def _foreground_title():
-    user32 = ctypes.windll.user32
+    user32 = user32
     hwnd = user32.GetForegroundWindow()
     if not hwnd:
         return ""
@@ -181,16 +256,17 @@ def _foreground_title():
 def _require_expected_app(expected_app):
     if not expected_app:
         return
+    foreground = user32.GetForegroundWindow()
     title = _foreground_title().casefold()
     expected = expected_app if isinstance(expected_app, (list, tuple, set)) else (expected_app,)
-    if not any(str(name).casefold() in title for name in expected):
+    if not foreground or not any(str(name).casefold() in title for name in expected):
         raise RuntimeError("Saisie bloquée : la fenêtre active n'est pas l'application demandée. Fenêtre active : " + (title or "inconnue"))
 
 
 def _wait_for_blender_ready(timeout=90):
     """Wait for Blender's actual top-level window, focus it, then allow its UI to settle."""
     deadline = time.monotonic() + timeout
-    user32 = ctypes.windll.user32
+    user32 = user32
     while time.monotonic() < deadline:
         hwnd = _find_window("Blender")
         if hwnd:
@@ -207,7 +283,7 @@ def _wait_for_blender_ready(timeout=90):
 
 
 def launch_app(name):
-    name = str(name or "").strip()[:80]
+    name = _canonical_app_name(str(name or "").strip()[:80])
     if not name:
         raise ValueError("Nom d'application manquant.")
     is_blender = "blender" in name.casefold()
@@ -357,12 +433,8 @@ def find_latest_file(folder, extension):
         if key_root not in seen_roots:
             seen_roots.add(key_root)
             unique_roots.append(candidate_root)
-    # Open the actual folder in Explorer as requested, without using it as a source
-    # of truth for the file listing.
-    try:
-        os.startfile(str(root))
-    except Exception:
-        pass
+    # Ne pas ouvrir Explorer ici : find_latest_file doit uniquement retourner
+    # le chemin. L'agent décidera ensuite s'il faut réellement ouvrir le fichier.
     newest = None
     for search_root in unique_roots:
         for current, dirs, files in os.walk(search_root):
@@ -385,7 +457,7 @@ def find_latest_file(folder, extension):
 
 def _send_windows_hotkey(keys):
     """Send a key chord through Win32 virtual-key events (not pyautogui's key parser)."""
-    user32 = ctypes.windll.user32
+    user32 = user32
     modifiers = {
         "ctrl": 0x11, "shift": 0x10, "alt": 0x12,
     }
@@ -447,7 +519,7 @@ def execute(action, confirm, expected_app=None):
         # in standard edit controls, WinUI/UWP apps and custom fields that expose
         # no UIA ValuePattern. It does not move the user's physical mouse.
         _require_expected_app(expected_app)
-        user32 = ctypes.windll.user32
+        user32 = user32
         if not user32.GetForegroundWindow():
             raise RuntimeError("Aucune fenêtre active pour recevoir le texte.")
         class KEYBDINPUT(ctypes.Structure):
@@ -494,7 +566,7 @@ def execute(action, confirm, expected_app=None):
         left, operator, right = match.groups()
         operator_keys = {"+": 0x6B, "×": 0x6A, "x": 0x6A, "X": 0x6A,
                          "*": 0x6A, "÷": 0x6F, "/": 0x6F, "−": 0x6D, "-": 0x6D}
-        user32 = ctypes.windll.user32
+        user32 = user32
         sequence = [0x60 + int(digit) for digit in left] + [operator_keys[operator]] + [0x60 + int(digit) for digit in right] + [0x0D]
         for vk in sequence:
             user32.keybd_event(vk, 0, 0, 0)
