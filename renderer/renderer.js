@@ -16,6 +16,7 @@ const menu = $('menu');
 const settingsBtn = $('settingsBtn');
 const closePanel = $('closePanel');
 const imageModeBtn = $('imageModeBtn');
+const computerModeBtn = $('computerModeBtn');
 
 
 // Seule IA utilisée : la locale (Ollama). Pas de clé API nécessaire pour le chat.
@@ -27,6 +28,8 @@ const levelMenu = $('levelMenu');
 let setupLine = null; // ligne de progression de l'installation proposée dans le chat
 const PLACEHOLDER = "Demander n'importe quoi...";
 let imageMode = false;
+let computerUseMode = false;
+let describeImageAfterGeneration = false;
 let imageProgressLabel = null;
 let lastGeneratedImagePath = null;
 let lastGeneratedImageDataUrl = null;
@@ -373,7 +376,7 @@ function submit() {
   const simpleLaunch = !!lancer &&
     !/\b(?:et|puis|ensuite|dossier|fichier|t[ée]l[ée]chargements?|downloads?|bureau|documents?|images?|png|jpe?g|trouve|cherche|supprime|efface|clique|d[ée]place|renomme|copie|colle)\b/i.test(lancer[2]);
   const startsComputerTask = /^(?:peux[- ]tu\s+)?(?:ouvre|ouvrir|lance|lancer|d[ée]marre|d[ée]marrer|trouve|chercher|cherche|recherche|supprime|supprimer|efface|effacer|clique|cliquer|d[ée]place|renomme|copie|colle)\b/i.test(text);
-  if (startsComputerTask && !simpleLaunch && !pending.length && settings.allowActions) {
+  if (computerUseMode && startsComputerTask && !simpleLaunch && !pending.length && settings.allowActions) {
     input.value = '';
     addBubble('user', text);
     startComputerActivityBubble('Préparation du contrôle de l’ordinateur…', text);
@@ -743,6 +746,19 @@ async function toggleMic() {
   keepOpen();
 }
 
+// ---------- Mode de travail : Chat / Computer Use ----------
+function setComputerUseMode(enabled) {
+  computerUseMode = !!enabled;
+  computerModeBtn.classList.toggle('on', computerUseMode);
+  computerModeBtn.setAttribute('aria-pressed', String(computerUseMode));
+  computerModeBtn.textContent = computerUseMode ? 'Computer Use' : 'Chat';
+  computerModeBtn.title = computerUseMode
+    ? 'Computer Use actif : les demandes de manipulation du PC passent par l’agent. Les demandes de texte restent traitées par le Chat.'
+    : 'Chat actif : réponses, recherches et génération de texte.';
+  input.placeholder = computerUseMode ? 'Décris une tâche ou pose une question…' : PLACEHOLDER;
+}
+computerModeBtn.addEventListener('click', () => setComputerUseMode(!computerUseMode));
+
 // ---------- Choix du modèle ----------
 function renderMenu() {
   menu.replaceChildren();
@@ -981,6 +997,7 @@ function createImageReveal(image) {
 }
 
 async function generateImageInChat(prompt, referenceImages = []) {
+  describeImageAfterGeneration = computerUseMode;
   const cleanPrompt = String(prompt || '').trim();
   if (!cleanPrompt || busy) return;
   busy = true;
@@ -1106,6 +1123,11 @@ async function generateImageInChat(prompt, referenceImages = []) {
     current = null;
     chat.scrollTop = chat.scrollHeight;
     scheduleClose();
+    if (describeImageAfterGeneration && lastGeneratedImageDataUrl) {
+      describeImageAfterGeneration = false;
+      messages.push({ role: 'user', content: 'Rédige une description claire et détaillée de la dernière image générée. Décris les éléments visibles, la composition, les couleurs, la lumière et l’ambiance. Ne prétends pas voir des détails qui ne sont pas visibles.' });
+      startAI();
+    }
   }
 }
 
