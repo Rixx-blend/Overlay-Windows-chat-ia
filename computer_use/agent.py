@@ -5,6 +5,7 @@ import os
 import re
 import sys
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote_plus, urlparse
@@ -86,6 +87,14 @@ def main():
     screenshots = []
     repeated_errors = {}
     invalid_plan_count = 0
+    blender_delete_task = (
+        bool(re.search(r"\\bblender\\b", args.task, re.IGNORECASE))
+        and bool(re.search(r"\\b(supprime|supprimer|efface|effacer|delete|remove)\\b", args.task, re.IGNORECASE))
+        and bool(re.search(r"\\b(cube|objet)\\b", args.task, re.IGNORECASE))
+    )
+    blender_x_sent = False
+    blender_enter_sent = False
+    blender_enter_step = -1
     log_dir = Path(args.logs)
     log_dir.mkdir(parents=True, exist_ok=True)
     emit("status", active=True, message="Initialisation du moteur Python…")
@@ -108,6 +117,31 @@ def main():
             decision = brain.decide(args.task, history, screenshots)
             action = decision.get("action")
             thought = str(decision.get("thought") or "").strip()[:400]
+
+            # Blender deletion must wait for a real X -> Enter sequence and a fresh
+            # screenshot before the model is allowed to claim completion.
+            if blender_delete_task and action == "hotkey":
+                proposed_keys = [str(key).lower() for key in (decision.get("keys") or [])]
+                if proposed_keys in (["ctrl", "a"], ["a", "ctrl"]):
+                    detail = "Ctrl+A ne supprime pas le cube dans Blender. Attends la vue 3D et utilise X sur le cube sélectionné."
+                    history.append(detail)
+                    emit("history", item={"time": datetime.now(timezone.utc).isoformat(), "type": "replan", "detail": detail})
+                    emit("status", active=True, message="Raccourci incorrect : nouvelle décision demandée…")
+                    continue
+                if proposed_keys == ["enter"] and not blender_x_sent:
+                    detail = "Entrée ne peut confirmer aucune suppression : la touche X n'a pas encore été envoyée."
+                    history.append(detail)
+                    emit("history", item={"time": datetime.now(timezone.utc).isoformat(), "type": "replan", "detail": detail})
+                    continue
+
+            if blender_delete_task and action == "done":
+                has_fresh_verification = blender_enter_sent and step > blender_enter_step
+                if not has_fresh_verification:
+                    detail = "Vérification refusée : le cube n'a pas encore été supprimé puis contrôlé sur une nouvelle capture."
+                    history.append(detail)
+                    emit("history", item={"time": datetime.now(timezone.utc).isoformat(), "type": "replan", "detail": detail})
+                    emit("status", active=True, message="La suppression n'est pas vérifiée : contrôle de la scène…")
+                    continue
 
             # Reject invented natural-language actions before they reach the executor.
             allowed_actions = {"left_click", "double_click", "type", "hotkey", "scroll", "wait", "open_app", "open_url", "find_latest_file", "open_file", "done"}
@@ -232,6 +266,18 @@ def main():
                     emit("cursor", x=round(float(decision.get("x", 0)) * shot["screen_width"] / 1000),
                          y=round(float(decision.get("y", 0)) * shot["screen_height"] / 1000), action=action)
                 result = execute(decision, confirm)
+                if blender_delete_task and action == "hotkey":
+                    sent_keys = [str(key).lower() for key in (decision.get("keys") or [])]
+                    if sent_keys == ["x"]:
+                        blender_x_sent = True
+                        emit("status", active=True, message="Blender : demande de suppression envoyée, attente de la confirmation…")
+                    elif sent_keys == ["enter"] and blender_x_sent:
+                        blender_enter_sent = True
+                        blender_enter_step = step
+                        emit("status", active=True, message="Blender : confirmation envoyée, nouvelle capture pour vérifier la scène…")
+                if blender_delete_task and action == "open_app":
+                    emit("status", active=True, message="Blender détecté : attente de stabilisation de la vue 3D…")
+                    time.sleep(2.0)
                 save_debug_capture(shot["image"], log_dir, decision)
                 history.append("Action " + str(step) + " : " + str(action) + " ; résultat : " + result)
                 history = history[-24:]
