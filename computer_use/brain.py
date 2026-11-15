@@ -13,6 +13,7 @@ Réponds exclusivement avec un objet JSON valide, sans Markdown, avec les clés 
 - open_app : app contient le nom exact ou usuel d'une application Windows à lancer.
 - open_url : url contient une adresse Web complète commençant par https:// ou http://.
 - find_latest_file : folder vaut Downloads/Téléchargements, Desktop/Bureau, Documents ou Pictures/Images ; extension vaut par exemple .png ou "*" pour tous les formats.
+- calculate : expression contient un calcul simple à effectuer dans la Calculatrice Windows, par exemple "125×48".
 - open_file : path contient le chemin exact d'un fichier trouvé.
 - done : tâche terminée ou impossible, explique brièvement dans thought.
 Règles :
