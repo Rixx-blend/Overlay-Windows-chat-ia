@@ -2,6 +2,8 @@ import os
 import subprocess
 import time
 import unicodedata
+import webbrowser
+from urllib.parse import urlparse
 from pathlib import Path
 
 import pyautogui
@@ -15,7 +17,7 @@ pyautogui.PAUSE = 0.12
 ALLOWED_KEYS = {
     "ctrl", "shift", "alt", "tab", "enter", "esc", "space", "backspace",
     "delete", "up", "down", "left", "right", "home", "end", "pageup",
-    "pagedown", "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9",
+    "pagedown", "l", "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9",
     "f10", "f11", "f12", "a", "c", "v", "x", "z", "s", "w", "n", "o",
 }
 
@@ -168,6 +170,15 @@ def find_latest_file(folder, extension):
 
 def execute(action, confirm):
     kind = action.get("action")
+    if kind == "open_url":
+        url = str(action.get("url") or "").strip()[:2048]
+        parsed = urlparse(url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("Adresse Web invalide : une URL http(s) complète est requise.")
+        opened = webbrowser.open(url, new=2, autoraise=True)
+        if not opened:
+            raise RuntimeError("Windows n'a pas confirmé l'ouverture de l'adresse dans le navigateur par défaut.")
+        return "Adresse Web ouverte dans le navigateur par défaut : " + parsed.netloc
     if kind in {"left_click", "double_click", "right_click"}:
         x, y = normalized_point(action)
         element = _uia_element_at(x, y)
