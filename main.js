@@ -198,7 +198,13 @@ function createWindow() {
 
 // Curseur virtuel Computer Use : fenêtre transparente, plein écran et totalement non interactive.
 function createCursorWindow() {
-  const bounds = screen.getPrimaryDisplay().bounds;
+  // Fenêtre transparente couvrant le bureau virtuel, pas uniquement l'écran principal.
+  const displays = screen.getAllDisplays();
+  const left = Math.min(...displays.map((d) => d.bounds.x));
+  const top = Math.min(...displays.map((d) => d.bounds.y));
+  const right = Math.max(...displays.map((d) => d.bounds.x + d.bounds.width));
+  const bottom = Math.max(...displays.map((d) => d.bounds.y + d.bounds.height));
+  const bounds = { x: left, y: top, width: right - left, height: bottom - top };
   cursorWin = new BrowserWindow({
     x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height,
     frame: false, transparent: true, resizable: false, movable: false,
