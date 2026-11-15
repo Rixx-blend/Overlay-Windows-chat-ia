@@ -453,15 +453,26 @@ async function requestOllamaChat(messages, model, tokenLimit, send) {
 }
 
 // ---------- Recherche web (Tavily) ----------
-// Chaque utilisateur saisit sa propre clé dans les paramètres : aucune clé n'est
-// incluse dans l'app ni dans le dépôt.
+// L'option autorise le web, mais chaque message ne doit pas déclencher une requête.
+function shouldSearchWeb(query) {
+  const q = String(query || '').normalize('NFKD')
+    .replace(/[\\u0300-\\u036f]/g, '')
+    .toLowerCase().replace(/[^a-z0-9? ]/g, ' ').replace(/\\s+/g, ' ').trim();
+  if (!q || q.length < 5) return false;
+  if (/^(qui es tu|tu es qui|quel est ton nom|comment tu t appelles|what are you|who are you|are you chatgpt)[ ?!.]*$/.test(q)) return false;
+  const explicitWebIntent = /\\b(cherche sur internet|recherche sur internet|fais une recherche|recherche web|sur le web|sur internet|sources fiables|cite tes sources|verifie sur internet|compare les sites|site officiel|trouve des sources)\\b/.test(q);
+  const freshnessIntent = /\\b(aujourd hui|actuellement|en ce moment|recent|derniere version|nouveau|nouvelle version|actualite|actualites|2026|2025|prix actuel|tarif actuel|disponibilite|stock|meteo|cours de|taux de change)\\b/.test(q);
+  const lookupIntent = /\\b(prix|tarif|achat|acheter|commander|avis|comparatif|meilleur|classement|sortie|date de sortie|programme|horaire|resultat|statistique|mise a jour)\\b/.test(q);
+  return explicitWebIntent || freshnessIntent || lookupIntent;
+}
+
 async function searchWeb(query) {
   const key = settings.tavilyKey || '';
   if (!key) throw new Error('clé Tavily absente : ajoute-la dans les paramètres');
   const res = await fetch('https://api.tavily.com/search', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-    body: JSON.stringify({ query: query.slice(0, 400), max_results: 5 }),
+    body: JSON.stringify({ query: query.slice(0, 400), max_results: 3, search_depth: 'basic', include_answer: false }),
   });
   if (!res.ok) throw new Error(`recherche HTTP ${res.status}`);
   const data = await res.json();
@@ -503,19 +514,21 @@ Mise en forme OBLIGATOIRE dans chaque réponse : marque au moins un passage clé
   let sourcesList = [];
   if (payload.webSearch) {
     const query = lastUserText(messages);
-    if (query) {
+    if (query && shouldSearchWeb(query)) {
       try {
         const results = await searchWeb(query);
         if (results.length) {
-          sys += `\n\nRésultats de recherche web à utiliser (cite-les avec [1], [2]… et précise quand une info vient de la recherche) :\n`
-            + results.map((r, i) => `[${i + 1}] ${r.title} — ${r.url}\n${r.description}`).join('\n');
+          sys += `\\n\\nRésultats de recherche web à utiliser (cite-les avec [1], [2]… et précise quand une info vient de la recherche) :\\n`
+            + results.map((r, i) => `[${i + 1}] ${r.title} — ${r.url}\\n${r.description}`).join('\\n');
           sourcesList = results;
         } else {
-          sys += '\n\nLa recherche web n\'a donné aucun résultat. Dis-le et réponds prudemment.';
+          sys += '\\n\\nLa recherche web n\'a donné aucun résultat. Dis-le et réponds prudemment.';
         }
       } catch (err) {
-        sys += `\n\nLa recherche web a échoué (${err.message}). Dis-le à l'utilisateur et réponds prudemment, sans inventer de sources.`;
+        sys += `\\n\\nLa recherche web a échoué (${err.message}). Dis-le à l'utilisateur et réponds prudemment, sans inventer de sources.`;
       }
+    } else if (query) {
+      sys += `\\n\\nAucune recherche web n'est nécessaire. Réponds directement sans prétendre avoir consulté des sites.`;
     }
   }
   const full = [{ role: 'system', content: sys }, ...messages];
