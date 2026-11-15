@@ -108,6 +108,19 @@ def main():
     )
     windows_settings_opened = False
     windows_version_retrieved = False
+    asks_images_large_icons = bool(
+        re.search(r"\\b(images|image|pictures|photos)\\b", args.task, re.IGNORECASE)
+        and re.search(r"grandes?\\s+ic[oô]nes|large\\s+icons", args.task, re.IGNORECASE)
+        and re.search(r"explorateur|explorer|fichiers", args.task, re.IGNORECASE)
+    )
+    asks_top_memory = bool(
+        re.search(r"gestionnaire des t[aâ]ches|task manager", args.task, re.IGNORECASE)
+        and re.search(r"m[eé]moire|memory|ram", args.task, re.IGNORECASE)
+        and re.search(r"trois|3|top", args.task, re.IGNORECASE)
+    )
+    images_view_completed = False
+    task_manager_opened = False
+    top_memory_reported = False
     last_open_app = ""
     repeated_open_app_count = 0
 
@@ -174,6 +187,20 @@ def main():
             elif asks_windows_version and windows_settings_opened and not windows_version_retrieved:
                 decision = {"action": "get_windows_version",
                             "thought": "Lecture de l’édition, de la version et du numéro de build exacts dans le Registre Windows."}
+                action = decision["action"]
+                thought = decision["thought"]
+            if asks_images_large_icons and not images_view_completed:
+                decision = {"action": "open_images_large_icons",
+                            "thought": "Ouverture directe du dossier Images dans l’Explorateur et sélection de Grandes icônes."}
+                action = decision["action"]
+                thought = decision["thought"]
+            if asks_top_memory and not top_memory_reported:
+                if not task_manager_opened:
+                    decision = {"action": "open_app", "app": "Gestionnaire des tâches",
+                                "thought": "Ouverture du Gestionnaire des tâches avant la mesure des applications."}
+                else:
+                    decision = {"action": "get_top_memory_apps",
+                                "thought": "Mesure et classement des trois applications visibles utilisant le plus de mémoire."}
                 action = decision["action"]
                 thought = decision["thought"]
 
@@ -249,7 +276,7 @@ def main():
                     continue
 
             # Reject invented natural-language actions before they reach the executor.
-            allowed_actions = {"left_click", "double_click", "type", "hotkey", "scroll", "wait", "open_app", "open_url", "find_latest_file", "open_file", "calculate", "get_windows_version", "done"}
+            allowed_actions = {"left_click", "double_click", "type", "hotkey", "scroll", "wait", "open_app", "open_url", "find_latest_file", "open_file", "calculate", "get_windows_version", "open_images_large_icons", "get_top_memory_apps", "done"}
             if action not in allowed_actions:
                 invalid_plan_count += 1
                 error_detail = "Action non autorisée retournée par le modèle : " + str(action)[:100]
@@ -306,6 +333,10 @@ def main():
             # Repair incomplete URLs and turn a YouTube video request into a direct search.
             if action == "open_url":
                 raw_url = str(decision.get("url") or "").strip()
+                markdown_link = re.fullmatch(r"\\[([^\\]]+)\\]\\((https?://[^)]+)\\)", raw_url)
+                if markdown_link:
+                    raw_url = markdown_link.group(2).strip()
+                raw_url = raw_url.replace("\\\\", "")
                 parsed_url = urlparse(raw_url)
                 # A search phrase is not a URL. Convert it to a real Google search URL.
                 asks_web_search = bool(re.search(r"\b(recherche|rechercher|cherche|chercher|search)\b", args.task, re.IGNORECASE))
@@ -434,6 +465,24 @@ def main():
                 if action == "get_windows_version":
                     windows_version_retrieved = True
                     emit("history", item={"time": datetime.now(timezone.utc).isoformat(), "type": "get_windows_version", "detail": result})
+                    emit("history", item={"time": datetime.now(timezone.utc).isoformat(), "type": "done", "detail": result})
+                    emit("status", active=False, message=result)
+                    break
+                if action == "open_images_large_icons":
+                    images_view_completed = True
+                    emit("history", item={"time": datetime.now(timezone.utc).isoformat(), "type": "open_images_large_icons", "detail": result})
+                    emit("history", item={"time": datetime.now(timezone.utc).isoformat(), "type": "done", "detail": result})
+                    emit("status", active=False, message=result)
+                    break
+                if action == "open_app" and asks_top_memory and str(decision.get("app", "")).casefold() == "gestionnaire des tâches":
+                    task_manager_opened = True
+                    emit("history", item={"time": datetime.now(timezone.utc).isoformat(), "type": "open_app", "detail": result})
+                    emit("status", active=True, message="Gestionnaire des tâches ouvert. Mesure des applications…")
+                    time.sleep(1.0)
+                    continue
+                if action == "get_top_memory_apps":
+                    top_memory_reported = True
+                    emit("history", item={"time": datetime.now(timezone.utc).isoformat(), "type": "get_top_memory_apps", "detail": result})
                     emit("history", item={"time": datetime.now(timezone.utc).isoformat(), "type": "done", "detail": result})
                     emit("status", active=False, message=result)
                     break
