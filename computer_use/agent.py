@@ -108,7 +108,12 @@ def main():
     # Plan explicite pour une demande simple d'ouverture puis d'alternance
     # entre Chrome et le Bloc-notes : le petit modèle ne doit pas rester bloqué
     # à répéter la première application observée.
-    asks_switch_apps = bool(re.search(r"passe(?:r)? de l['’]un [àa] l['’]autre|alterne(?:r)? entre|switch between", args.task, re.IGNORECASE))
+    # Détecte les demandes d'alternance même si l'utilisateur ajoute
+    # « puis », « ensuite » ou une formulation légèrement différente.
+    asks_switch_apps = bool(re.search(
+        r"(?:passe(?:r)?|bascul(?:e|er)|alterne(?:r)?)\\b.{0,70}\\b(?:entre|de)\\b|switch\\s+between",
+        args.task, re.IGNORECASE
+    ) or re.search(r"de\\s+l['’]un\\s+[àa]\\s+l['’]autre", args.task, re.IGNORECASE))
     switch_sequence = (["Google Chrome", "Bloc-notes", "Google Chrome", "Bloc-notes"]
                        if asks_switch_apps and re.search(r"chrome", args.task, re.IGNORECASE)
                        and re.search(r"bloc[- ]notes|notepad", args.task, re.IGNORECASE) else [])
@@ -239,7 +244,8 @@ def main():
                     break
                 emit("status", active=True, message="Action invalide : nouvelle décision demandée…")
                 continue
-            invalid_plan_count = 0
+            # Ne réinitialise pas le compteur ici : open_app sans nom doit
+            # réellement atteindre la limite de tentatives, au lieu de boucler à l'infini.
 
             # Recover from a common planner error: a website was emitted as an app,
             # or open_app was returned without the required app name.
@@ -276,6 +282,10 @@ def main():
                     emit("history", item={"time": datetime.now(timezone.utc).isoformat(), "type": "replan", "detail": "Action incomplète : nouvelle décision demandée au modèle."})
                     emit("status", active=True, message="Correction de la décision…")
                     continue
+
+            # Une décision exploitable a été obtenue ; les erreurs suivantes
+            # seront comptées séparément par leur signature.
+            invalid_plan_count = 0
 
             # Repair incomplete URLs and turn a YouTube video request into a direct search.
             if action == "open_url":
@@ -368,7 +378,7 @@ def main():
                 else:
                     last_open_app = requested_app
                     repeated_open_app_count = 0
-                if repeated_open_app_count >= 2 and not switch_sequence:
+                if repeated_open_app_count >= 2:
                     detail = "Blocage de boucle : la même application a été demandée plusieurs fois sans progression. Nouvelle stratégie requise."
                     emit("history", item={"time": datetime.now(timezone.utc).isoformat(), "type": "replan", "detail": detail})
                     emit("status", active=False, error=True, message=detail)
