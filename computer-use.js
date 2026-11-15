@@ -114,8 +114,8 @@ function createComputerUse({ getWindow, getCursorWindow }) {
         const display = screen.getPrimaryDisplay();
         const position = {
           ...message,
-          x: Number(message.x || 0) / display.scaleFactor,
-          y: Number(message.y || 0) / display.scaleFactor,
+          x: Number(message.x || 0) / display.scaleFactor - display.bounds.x,
+          y: Number(message.y || 0) / display.scaleFactor - display.bounds.y,
         };
         // The cursor overlay can finish loading after the Python agent starts.
         // Show it on demand and send the first position only after its page is ready.
