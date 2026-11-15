@@ -47,6 +47,10 @@ user32.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
 user32.GetClassNameW.restype = ctypes.c_int
 user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.c_void_p]
 user32.GetWindowRect.restype = wintypes.BOOL
+user32.SetCursorPos.argtypes = [ctypes.c_int, ctypes.c_int]
+user32.SetCursorPos.restype = wintypes.BOOL
+user32.mouse_event.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.DWORD, wintypes.DWORD, ctypes.c_size_t]
+user32.mouse_event.restype = None
 kernel32.GetCurrentThreadId.restype = wintypes.DWORD
 EnumWindowsProc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
 user32.EnumWindows.argtypes = [EnumWindowsProc, wintypes.LPARAM]
@@ -678,13 +682,25 @@ def execute(action, confirm, expected_app=None):
         return "Adresse Web ouverte dans le navigateur par défaut : " + parsed.netloc
     if kind in {"left_click", "double_click", "right_click"}:
         x, y = normalized_point(action)
-        element = _uia_element_at(x, y)
+        # Computer Use visuel : le modèle choisit un point sur la capture et
+        # Windows reçoit un vrai clic à ces coordonnées du bureau virtuel.
+        # Cela fonctionne aussi sur les écrans secondaires et les interfaces
+        # personnalisées qui n'exposent aucun contrôle UI Automation.
+        if not user32.SetCursorPos(int(x), int(y)):
+            raise RuntimeError("Windows n'a pas pu déplacer le curseur vers le point visé.")
         if kind == "right_click":
-            raise RuntimeError("Le clic droit indépendant n'est pas pris en charge par UI Automation pour ce contrôle.")
-        # UIA Invoke activates the target without generating a physical double-click.
-        # Avoid invoking twice: toggle controls could otherwise open then immediately close.
-        _uia_invoke(element)
-        return "Action exécutée via Windows UI Automation, sans déplacer la souris physique."
+            buttons = ((0x0008, 0x0010),)  # RIGHTDOWN, RIGHTUP
+        elif kind == "double_click":
+            buttons = ((0x0002, 0x0004), (0x0002, 0x0004))  # LEFTDOWN/UP x2
+        else:
+            buttons = ((0x0002, 0x0004),)  # LEFTDOWN, LEFTUP
+        for index, (down_flag, up_flag) in enumerate(buttons):
+            user32.mouse_event(down_flag, 0, 0, 0, 0)
+            time.sleep(0.045)
+            user32.mouse_event(up_flag, 0, 0, 0, 0)
+            if index + 1 < len(buttons):
+                time.sleep(0.09)
+        return "Clic visuel envoyé à Windows aux coordonnées (" + str(x) + ", " + str(y) + ")."
     if kind == "type":
         value = str(action.get("text") or "")[:2000]
         if not value:
@@ -761,36 +777,13 @@ def execute(action, confirm, expected_app=None):
         return "Raccourci envoyé via Win32 : " + "+".join(normalized)
     if kind == "scroll":
         x, y = normalized_point(action)
-        element = _uia_element_at(x, y)
         amount = max(-12, min(12, int(action.get("amount", -3))))
-        # Cherche ScrollPattern sur le contrôle visé puis ses parents : le point
-        # peut tomber sur une ligne alors que le conteneur parent est défilable.
-        current = element
-        for _ in range(8):
-            try:
-                pattern = current.iface_scroll
-                direction = 3 if amount > 0 else 1  # LargeIncrement / LargeDecrement
-                for _ in range(max(1, min(6, abs(amount)))):
-                    pattern.Scroll(0, direction)  # horizontal NoAmount, vertical direction
-                return "Défilement effectué via UI Automation sur le contrôle ou son conteneur."
-            except Exception:
-                try:
-                    current = current.parent()
-                    if not current:
-                        break
-                except Exception:
-                    break
-        # Repli clavier : focalise le contrôle puis envoie PageUp/PageDown.
-        # Contrairement à pyautogui.scroll(), cela ne déplace pas la souris physique.
-        try:
-            element.set_focus()
-            vk = 0x21 if amount > 0 else 0x22  # VK_PRIOR / VK_NEXT
-            for _ in range(max(1, min(6, abs(amount)))):
-                user32.keybd_event(vk, 0, 0, 0)
-                user32.keybd_event(vk, 0, 2, 0)
-            return "Défilement de secours effectué par PageUp/PageDown après focus UI Automation."
-        except Exception as exc:
-            raise RuntimeError("Défilement impossible : ni ScrollPattern sur le conteneur, ni focus clavier. " + str(exc)[:120])
+        if not user32.SetCursorPos(int(x), int(y)):
+            raise RuntimeError("Windows n'a pas pu placer le curseur sur la zone à faire défiler.")
+        # WM_MOUSEWHEEL : positif = haut, négatif = bas. Le défilement visuel
+        # ne dépend pas de la présence d'un ScrollPattern UI Automation.
+        user32.mouse_event(0x0800, 0, 0, int(amount * 120), 0)
+        return "Défilement visuel envoyé à Windows à l'emplacement (" + str(x) + ", " + str(y) + ")."
     if kind == "get_windows_version":
         import winreg
         key_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion"
