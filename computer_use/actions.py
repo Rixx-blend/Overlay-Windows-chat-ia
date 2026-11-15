@@ -452,7 +452,7 @@ def execute(action, confirm, expected_app=None):
     if kind == "calculate":
         expression = str(action.get("expression") or "").strip()
         import re
-        match = re.fullmatch(r"(\\d{1,12})\\s*([+×xX*÷/−-])\\s*(\\d{1,12})", expression)
+        match = re.fullmatch(r"(\d{1,12})\s*([+×xX*÷/−-])\s*(\d{1,12})", expression)
         if not match:
             raise ValueError("Calcul refusé : expression arithmétique simple attendue.")
         _require_expected_app(("Calculatrice", "Calculator"))
