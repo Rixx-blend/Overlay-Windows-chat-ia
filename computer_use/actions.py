@@ -682,7 +682,7 @@ def execute(action, confirm, expected_app=None):
             raise RuntimeError("Défilement impossible : ni ScrollPattern sur le conteneur, ni focus clavier. " + str(exc)[:120])
     if kind == "get_windows_version":
         import winreg
-        key_path = r"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion"
+        key_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion"
         with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path) as key:
             def read_value(name, default=""):
                 try:
