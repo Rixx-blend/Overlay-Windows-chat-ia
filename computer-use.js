@@ -3,7 +3,7 @@ const { spawn, spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-function createComputerUse({ getWindow }) {
+function createComputerUse({ getWindow, getCursorWindow }) {
   let child = null;
   let bootstrapChild = null;
   let active = false;
@@ -107,9 +107,19 @@ function createComputerUse({ getWindow }) {
     let message;
     try { message = JSON.parse(line); } catch { log('debug', line); return; }
     if (id !== runId) return;
+    if (message.event === 'cursor') {
+      const cursor = getCursorWindow && getCursorWindow();
+      if (cursor && !cursor.isDestroyed()) cursor.webContents.send('ai-cursor-position', message);
+      return;
+    }
     if (message.event === 'status') {
       // Keep controls locked until the Python child has actually exited.
       emit('computer-use-status', { ...message, active: true });
+      return;
+    }
+    if (message.event === 'cursor_hide') {
+      const cursor = getCursorWindow && getCursorWindow();
+      if (cursor && !cursor.isDestroyed()) cursor.webContents.send('ai-cursor-visible', false);
       return;
     }
     if (message.event === 'history') {
@@ -157,6 +167,8 @@ function createComputerUse({ getWindow }) {
       emit('computer-use-status', { active: true, message: 'Vérification des modules Python (' + python.version + ')…' });
       await ensureDependencies(python, files.requirements, () => id !== runId);
       if (id !== runId) return;
+      const cursor = getCursorWindow && getCursorWindow();
+      if (cursor && !cursor.isDestroyed()) cursor.showInactive();
       const logs = path.join(app.getPath('userData'), 'computer-use-logs');
       fs.mkdirSync(logs, { recursive: true });
       const args = [...python.prefixArgs, files.script, '--task', String(task).slice(0, 1500), '--model', process.env.OVERLAYIA_VISION_MODEL || 'qwen2.5vl:3b', '--logs', logs];
@@ -191,6 +203,8 @@ function createComputerUse({ getWindow }) {
         if (outputBuffer.trim()) handleLine(outputBuffer.trim(), id);
         child = null;
         active = false;
+        const cursor = getCursorWindow && getCursorWindow();
+        if (cursor && !cursor.isDestroyed()) { cursor.webContents.send('ai-cursor-visible', false); cursor.hide(); }
         if (code === 130) emit('computer-use-status', { active: false, message: 'Arrêt d’urgence effectué avec Échap.' });
         else if (code !== 0) emit('computer-use-status', { active: false, error: true, message: 'Le moteur Python s’est arrêté (code ' + code + '). Consulte les journaux.' });
         else emit('computer-use-status', { active: false, message: 'Agent inactif.' });
@@ -210,12 +224,16 @@ function createComputerUse({ getWindow }) {
       bootstrapChild = null;
     }
     if (!child) {
+      const cursor = getCursorWindow && getCursorWindow();
+      if (cursor && !cursor.isDestroyed()) cursor.hide();
       active = false;
       emit('computer-use-status', { active: false, message: 'Arrêt demandé.' });
       return;
     }
     try { if (child.stdin.writable) child.stdin.write('{"type":"stop"}\n'); } catch {}
     child.kill();
+    const cursor = getCursorWindow && getCursorWindow();
+    if (cursor && !cursor.isDestroyed()) cursor.hide();
     child = null;
     active = false;
     emit('computer-use-status', { active: false, message: 'Arrêt demandé.' });
