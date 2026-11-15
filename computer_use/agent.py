@@ -112,12 +112,30 @@ def main():
             step += 1
             emit("status", active=True, message="Analyse de l’écran — observation " + str(step) + "/30")
             shot = capture_screen(add_grid=os.environ.get("OVERLAYIA_COMPUTER_GRID") == "1")
+            # Display the AI cursor from the start of each observation, not only on clicks.
+            class _POINT(ctypes.Structure):
+                _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+            _point = _POINT()
+            ctypes.windll.user32.GetCursorPos(ctypes.byref(_point))
+            emit("cursor", x=_point.x, y=_point.y, action="observe")
             screenshots.append(shot["data_url"])
             screenshots = screenshots[-2:]
             emit("history", item={"time": datetime.now(timezone.utc).isoformat(), "type": "observation", "detail": "Capture d’écran actualisée et transmise au modèle visuel pour examiner les éléments visibles."})
             decision = brain.decide(args.task, history, screenshots)
             action = decision.get("action")
             thought = str(decision.get("thought") or "").strip()[:400]
+
+            # Deterministic routing for clear Windows file/folder requests.
+            task_folded = args.task.casefold()
+            asks_recent_download = (
+                any(term in task_folded for term in ("téléchargements", "telechargements", "downloads"))
+                and any(term in task_folded for term in ("plus récent", "plus recente", "dernier fichier", "dernière fichier", "fichier le plus récent", "fichier le plus recent"))
+            )
+            if asks_recent_download:
+                decision = {"action": "find_latest_file", "folder": "Téléchargements", "extension": "*",
+                            "thought": "Recherche du fichier le plus récent dans Téléchargements, tous formats confondus."}
+                action = decision["action"]
+                thought = decision["thought"]
 
             # Blender deletion must wait for a real X -> Enter sequence and a fresh
             # screenshot before the model is allowed to claim completion.
@@ -198,6 +216,16 @@ def main():
             if action == "open_url":
                 raw_url = str(decision.get("url") or "").strip()
                 parsed_url = urlparse(raw_url)
+                # A search phrase is not a URL. Convert it to a real Google search URL.
+                if raw_url and (" " in raw_url or parsed_url.scheme not in {"http", "https"} and "." not in raw_url.split("/")[0]):
+                    if any(word in task_lower_for_url if False else False for word in ()):
+                        pass
+                    if re.search(r"\\b(recherche|rechercher|cherche|search|google)\\b", args.task, re.IGNORECASE):
+                        query = raw_url if len(raw_url.split()) <= 8 else re.sub(r"^.*?\\b(?:recherche|rechercher|cherche|search)\\s+", "", args.task, flags=re.IGNORECASE)
+                        decision["url"] = "https://www.google.com/search?q=" + quote_plus(query.strip(" «»\"'"))
+                        raw_url = decision["url"]
+                        parsed_url = urlparse(raw_url)
+                        thought = "La demande est une recherche web : ouverture des résultats Google."
                 if not parsed_url.scheme and raw_url:
                     # Models often return www.youtube.com without the required scheme.
                     if "." in raw_url.split("/")[0] and " " not in raw_url:
@@ -263,7 +291,7 @@ def main():
             if stop_event.is_set():
                 break
             try:
-                if action in {"left_click", "double_click", "right_click", "scroll"}:
+                if action in {"left_click", "double_click", "scroll"}:
                     emit("cursor", x=round(float(decision.get("x", 0)) * shot["screen_width"] / 1000),
                          y=round(float(decision.get("y", 0)) * shot["screen_height"] / 1000), action=action)
                 result = execute(decision, confirm)
