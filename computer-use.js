@@ -79,7 +79,7 @@ function createComputerUse({ getWindow, getCursorWindow }) {
   }
 
   async function ensureDependencies(python, requirements, isCancelled) {
-    const check = spawnSync(python.command, [...python.prefixArgs, '-c', 'import openai, mss, PIL, pyautogui, pynput, pyperclip'], {
+    const check = spawnSync(python.command, [...python.prefixArgs, '-c', 'import openai, mss, PIL, pyautogui, pynput, pyperclip, pywinauto'], {
       encoding: 'utf8', windowsHide: true, timeout: 20000,
     });
     if (!check.error && check.status === 0) return;
