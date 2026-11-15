@@ -893,3 +893,98 @@ details.sources .source-link:hover { opacity: 1; }
 @media (prefers-reduced-motion: reduce) {
   .computer-live .px-grid span, .computer-live-item { animation: none; }
 }
+
+
+
+/* ---------- Palette monochrome pour les chargements et la réflexion ---------- */
+.thinking .px-grid span,
+.computer-live .px-grid span {
+  background: #55565a;
+  box-shadow: 0 0 7px rgba(35,35,38,.16);
+}
+.shimmer {
+  background-image: linear-gradient(90deg, #a1a1a5 28%, #29292d 50%, #a1a1a5 72%);
+}
+.timer { color: #55565a; }
+.computer-live-mark {
+  background: #5c5d61;
+  box-shadow: 0 0 6px rgba(40,40,44,.2);
+}
+.computer-live-copy strong { color: rgba(24,24,27,.92); }
+.computer-live-detail { color: rgba(35,35,39,.58); }
+
+/* Activités dépliables : flèche discrète et détails dans un panneau gris */
+.computer-live-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 9px;
+  min-width: 0;
+}
+.computer-live-head strong { min-width: 0; }
+.computer-live-expand {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 21px;
+  width: 21px;
+  height: 21px;
+  padding: 0;
+  margin: -3px -3px -3px 0;
+  border: 1px solid rgba(30,30,34,.10);
+  border-radius: 7px;
+  background: rgba(30,30,34,.045);
+  color: rgba(25,25,29,.68);
+  cursor: pointer;
+  transition: background .18s ease, color .18s ease, transform .2s ease, border-color .18s ease;
+}
+.computer-live-expand:hover {
+  background: rgba(30,30,34,.10);
+  color: #17171a;
+  border-color: rgba(30,30,34,.18);
+}
+.computer-live-expand svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform .2s ease;
+}
+.computer-live-expand[aria-expanded="true"] svg { transform: rotate(180deg); }
+.computer-live-expanded {
+  margin-top: 7px;
+  padding: 8px 9px;
+  border: 1px solid rgba(30,30,34,.075);
+  border-radius: 9px;
+  background: rgba(35,35,39,.045);
+  animation: computer-details-in .18s ease both;
+}
+.computer-live-expanded[hidden] { display: none !important; }
+.computer-live-expanded-label {
+  display: block;
+  margin-bottom: 4px;
+  color: rgba(30,30,34,.52);
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: .055em;
+  text-transform: uppercase;
+}
+.computer-live-expanded p {
+  margin: 0;
+  color: rgba(25,25,29,.78);
+  font-size: 10.5px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+@keyframes computer-details-in {
+  from { opacity: 0; transform: translateY(-3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .computer-live-expand, .computer-live-expand svg { transition: none; }
+  .computer-live-expanded { animation: none; }
+}
