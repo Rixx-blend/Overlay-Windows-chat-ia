@@ -3,6 +3,7 @@ import ctypes
 import subprocess
 import time
 import unicodedata
+import uuid
 import webbrowser
 from urllib.parse import urlparse
 from pathlib import Path
@@ -166,6 +167,30 @@ def _normalize_folder_name(value):
 
 def _windows_user_folder(registry_name, fallback_names):
     if os.name == "nt":
+        # Resolve redirected/renamed Downloads using the Windows Known Folder API.
+        if registry_name == "Downloads":
+            class GUID(ctypes.Structure):
+                _fields_ = [("Data1", ctypes.c_uint32), ("Data2", ctypes.c_uint16),
+                            ("Data3", ctypes.c_uint16), ("Data4", ctypes.c_ubyte * 8)]
+            raw = uuid.UUID("374DE290-123F-4565-9164-39C4925E467B").bytes_le
+            folder_id = GUID(int.from_bytes(raw[0:4], "little"),
+                             int.from_bytes(raw[4:6], "little"),
+                             int.from_bytes(raw[6:8], "little"),
+                             (ctypes.c_ubyte * 8).from_buffer_copy(raw[8:16]))
+            result = ctypes.c_wchar_p()
+            try:
+                hr = ctypes.windll.shell32.SHGetKnownFolderPath(
+                    ctypes.byref(folder_id), 0, None, ctypes.byref(result))
+                if hr == 0 and result.value and Path(result.value).exists():
+                    return Path(result.value)
+            except Exception:
+                pass
+            finally:
+                if result:
+                    try:
+                        ctypes.windll.ole32.CoTaskMemFree(result)
+                    except Exception:
+                        pass
         try:
             import winreg
             key_path = r"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\User Shell Folders"
@@ -308,8 +333,17 @@ def execute(action, confirm):
                 ("dwFlags", ctypes.c_ulong), ("time", ctypes.c_ulong),
                 ("dwExtraInfo", ctypes.c_size_t),
             ]
+        class MOUSEINPUT(ctypes.Structure):
+            _fields_ = [
+                ("dx", ctypes.c_long), ("dy", ctypes.c_long),
+                ("mouseData", ctypes.c_ulong), ("dwFlags", ctypes.c_ulong),
+                ("time", ctypes.c_ulong), ("dwExtraInfo", ctypes.c_size_t),
+            ]
+        class HARDWAREINPUT(ctypes.Structure):
+            _fields_ = [("uMsg", ctypes.c_ulong), ("wParamL", ctypes.c_ushort), ("wParamH", ctypes.c_ushort)]
         class INPUTUNION(ctypes.Union):
-            _fields_ = [("ki", KEYBDINPUT)]
+            # Preserve the native x64 INPUT union size/alignment required by SendInput.
+            _fields_ = [("mi", MOUSEINPUT), ("ki", KEYBDINPUT), ("hi", HARDWAREINPUT)]
         class INPUT(ctypes.Structure):
             _fields_ = [("type", ctypes.c_ulong), ("union", INPUTUNION)]
         sent = 0
