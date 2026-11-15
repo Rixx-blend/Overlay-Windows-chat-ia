@@ -1708,15 +1708,16 @@ ipcMain.handle('protect', (_e, on) => {
 
 // ---------- Raccourcis ----------
 function toggleOverlay() {
-  if (!win || win.isDestroyed()) createWindow();
+  const needsCreate = !win || win.isDestroyed();
+  if (needsCreate) createWindow();
   if (!win || win.isDestroyed()) return;
-  if (win.isVisible()) {
-    win.hide();
-  } else {
+  if (needsCreate || !win.isVisible()) {
     if (win.isMinimized()) win.restore();
     win.show();
     win.focus();
     win.webContents.send('focus-input');
+  } else {
+    win.hide();
   }
 }
 
