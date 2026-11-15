@@ -202,7 +202,7 @@ def execute(action, confirm):
         element = _uia_element_at(x, y)
         amount = max(-12, min(12, int(action.get("amount", -3))))
         try:
-            element.iface_scroll.Scroll(0, 1 if amount > 0 else 2)
+            element.iface_scroll.Scroll(2, 3 if amount > 0 else 1)
             return "Défilement demandé via UI Automation."
         except Exception:
             raise RuntimeError("Ce contrôle ne propose pas ScrollPattern. Aucun mouvement de souris physique n'a été effectué.")
