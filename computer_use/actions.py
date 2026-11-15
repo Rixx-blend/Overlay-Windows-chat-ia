@@ -301,7 +301,12 @@ def launch_app(name):
         "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(); $OutputEncoding = [Console]::OutputEncoding; "
         "$ErrorActionPreference='Stop'; $n='" + escaped + "'; "
         "if ($n -match '^(bloc[- ]?notes|notepad)$') { Start-Process notepad.exe; Write-Output 'Bloc-notes lancé directement' } "
-        "elseif ($n -match '^(calculatrice|calculator)
+        "elseif ($n -match '^(calculatrice|calculator)$') { Start-Process calc.exe; Write-Output 'Calculatrice lancée directement' } "
+        "elseif ($n -match '^streamlabs( desktop)?$') { $a=Get-StartApps | Where-Object { $_.Name -match '(?i)streamlabs' } | Select-Object -First 1; "
+        "if ($a) { Start-Process explorer.exe -ArgumentList ('shell:AppsFolder\\'+$a.AppID); Write-Output ('Streamlabs lancé : '+$a.Name) } "
+        "else { $roots=@(($env:ProgramFiles+'\\Streamlabs Desktop'),($env:LOCALAPPDATA+'\\Programs\\Streamlabs Desktop'),($env:ProgramFiles+'\\Streamlabs OBS')); "
+        "$exe=$null; foreach ($root in $roots) { $candidate=Join-Path $root 'Streamlabs Desktop.exe'; if (Test-Path $candidate) { $exe=Get-Item $candidate; break } }; "
+        "if ($exe) { Start-Process $exe.FullName; Write-Output ('Streamlabs lancé : '+$exe.FullName) } else { throw 'Streamlabs Desktop introuvable dans les applications installées.' } } } "
         "else { $a=Get-StartApps | Where-Object { $_.Name -like ('*'+$n+'*') } | "
         "Sort-Object @{Expression={if ($_.Name -ieq $n){0}elseif($_.Name -ilike ($n+'*')){1}else{2}}} | "
         "Select-Object -First 1; "
