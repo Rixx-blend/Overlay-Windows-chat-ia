@@ -1855,7 +1855,8 @@ app.whenReady().then(() => {
   // Les moteurs locaux restent arrêtés au repos et démarrent à la première requête.
 });
 
-app.on('window-all-closed', () => app.quit());
+// Ne pas quitter quand la fenêtre est fermée : elle peut être recréée au prochain lancement.
+app.on('window-all-closed', () => {});
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
   // Nettoyage du dossier temporaire de session (images non enregistrées).
