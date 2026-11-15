@@ -137,7 +137,7 @@ def main():
             try:
                 if action in {"left_click", "double_click", "right_click", "scroll"}:
                     emit("cursor", x=round(float(decision.get("x", 0)) * shot["screen_width"] / 1000),
-                         y=round(float(decision.get("y", 0)) * shot["screen_height"] / 1000))
+                         y=round(float(decision.get("y", 0)) * shot["screen_height"] / 1000), action=action)
                 result = execute(decision, confirm)
                 save_debug_capture(shot["image"], log_dir, decision)
                 history.append("Action " + str(step) + " : " + str(action) + " ; résultat : " + result)
