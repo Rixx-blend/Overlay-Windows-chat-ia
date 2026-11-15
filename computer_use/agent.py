@@ -105,7 +105,7 @@ def main():
     # Plan explicite pour une demande simple d'ouverture puis d'alternance
     # entre Chrome et le Bloc-notes : le petit modèle ne doit pas rester bloqué
     # à répéter la première application observée.
-    asks_switch_apps = bool(re.search(r"passe(?:r)? de l['’]un a l['’]autre|alterne(?:r)? entre|switch between", args.task, re.IGNORECASE))
+    asks_switch_apps = bool(re.search(r"passe(?:r)? de l['’]un [àa] l['’]autre|alterne(?:r)? entre|switch between", args.task, re.IGNORECASE))
     switch_sequence = (["Google Chrome", "Bloc-notes", "Google Chrome", "Bloc-notes"]
                        if asks_switch_apps and re.search(r"chrome", args.task, re.IGNORECASE)
                        and re.search(r"bloc[- ]notes|notepad", args.task, re.IGNORECASE) else [])
