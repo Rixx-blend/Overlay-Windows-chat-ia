@@ -68,8 +68,15 @@ def normalized_point(action):
     y = float(action.get("y", -1))
     if not (0 <= x <= 1000 and 0 <= y <= 1000):
         raise ValueError("Coordonnées normalisées hors limites.")
-    width, height = pyautogui.size()
-    return round(x * (width - 1) / 1000), round(y * (height - 1) / 1000)
+    # Coordonnées normalisées sur le bureau virtuel complet (tous les écrans).
+    # pyautogui.size() ne renvoie que l'écran principal et décale les clics sur le secondaire.
+    import mss
+    with mss.mss() as capture:
+        virtual = capture.monitors[0]
+    return (
+        virtual["left"] + round(x * (virtual["width"] - 1) / 1000),
+        virtual["top"] + round(y * (virtual["height"] - 1) / 1000),
+    )
 
 
 def _uia_element_at(x, y):
@@ -145,6 +152,12 @@ def _canonical_app_name(name):
     raw = str(name or "").strip()
     folded = unicodedata.normalize("NFKD", raw).encode("ascii", "ignore").decode("ascii").casefold()
     compact = " ".join(folded.replace("_", " ").replace("-", " ").split())
+    if any(token in compact for token in ("parametres windows", "windows settings", "windows setting", "settings", "parametres")):
+        return "Paramètres Windows"
+    if any(token in compact for token in ("explorateur", "file explorer", "windows explorer", "explorer")):
+        return "Explorateur de fichiers"
+    if any(token in compact for token in ("gestionnaire des taches", "task manager")):
+        return "Gestionnaire des tâches"
     if any(token in compact for token in ("bloc notes", "notepad", "bloge notes", "blog notes", "bloc note")):
         return "Bloc-notes"
     if any(token in compact for token in ("calculatrice", "calculator", "calculette")):
@@ -167,6 +180,12 @@ def _canonical_app_name(name):
 def _app_title_aliases(name):
     canonical = _canonical_app_name(name)
     folded = canonical.casefold()
+    if folded == "paramètres windows":
+        return ("Paramètres", "Settings", "SystemSettings")
+    if folded == "explorateur de fichiers":
+        return ("Explorateur de fichiers", "File Explorer", "Explorateur")
+    if folded == "gestionnaire des tâches":
+        return ("Gestionnaire des tâches", "Task Manager")
     if folded == "bloc-notes":
         return ("Bloc-notes", "Notepad")
     if folded == "calculatrice":
@@ -296,6 +315,23 @@ def launch_app(name):
     if is_blender and _find_window("Blender"):
         _wait_for_blender_ready()
         return "Fenêtre Blender existante réactivée ; chargement de l'interface attendu et focus vérifié."
+    if name == "Paramètres Windows":
+        # Ouvre directement la page À propos, qui contient édition, version et build.
+        subprocess.Popen(["cmd.exe", "/c", "start", "", "ms-settings:about"],
+                         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        time.sleep(1.2)
+        return "Paramètres Windows ouverts sur Système > Informations système."
+    if name == "Explorateur de fichiers":
+        subprocess.Popen(["explorer.exe"], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline:
+            for title in ("Explorateur de fichiers", "File Explorer", "Ce PC", "This PC", "Accueil", "Home"):
+                hwnd = _find_window(title)
+                if hwnd and _force_foreground(hwnd):
+                    return "Explorateur Windows ouvert et fenêtre activée."
+            time.sleep(0.25)
+        # Explorer peut afficher le nom du dossier sans le libellé « Explorateur ».
+        raise RuntimeError("Explorateur lancé, mais sa fenêtre n'a pas pu être activée.")
     escaped = name.replace("'", "''")
     script = (
         "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(); $OutputEncoding = [Console]::OutputEncoding; "
@@ -595,11 +631,34 @@ def execute(action, confirm, expected_app=None):
         x, y = normalized_point(action)
         element = _uia_element_at(x, y)
         amount = max(-12, min(12, int(action.get("amount", -3))))
+        # Cherche ScrollPattern sur le contrôle visé puis ses parents : le point
+        # peut tomber sur une ligne alors que le conteneur parent est défilable.
+        current = element
+        for _ in range(8):
+            try:
+                pattern = current.iface_scroll
+                direction = 3 if amount > 0 else 1  # LargeIncrement / LargeDecrement
+                for _ in range(max(1, min(6, abs(amount)))):
+                    pattern.Scroll(2, direction)  # horizontal NoAmount, vertical direction
+                return "Défilement effectué via UI Automation sur le contrôle ou son conteneur."
+            except Exception:
+                try:
+                    current = current.parent()
+                    if not current:
+                        break
+                except Exception:
+                    break
+        # Repli clavier : focalise le contrôle puis envoie PageUp/PageDown.
+        # Contrairement à pyautogui.scroll(), cela ne déplace pas la souris physique.
         try:
-            element.iface_scroll.Scroll(2, 3 if amount > 0 else 1)
-            return "Défilement demandé via UI Automation."
-        except Exception:
-            raise RuntimeError("Ce contrôle ne propose pas ScrollPattern. Aucun mouvement de souris physique n'a été effectué.")
+            element.set_focus()
+            vk = 0x21 if amount > 0 else 0x22  # VK_PRIOR / VK_NEXT
+            for _ in range(max(1, min(6, abs(amount)))):
+                user32.keybd_event(vk, 0, 0, 0)
+                user32.keybd_event(vk, 0, 2, 0)
+            return "Défilement de secours effectué par PageUp/PageDown après focus UI Automation."
+        except Exception as exc:
+            raise RuntimeError("Défilement impossible : ni ScrollPattern sur le conteneur, ni focus clavier. " + str(exc)[:120])
     if kind == "wait":
         seconds = max(0.2, min(5.0, float(action.get("seconds", 1))))
         time.sleep(seconds)
