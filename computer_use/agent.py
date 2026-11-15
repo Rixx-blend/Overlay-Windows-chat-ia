@@ -109,8 +109,8 @@ def main():
     windows_settings_opened = False
     windows_version_retrieved = False
     asks_images_large_icons = bool(
-        re.search(r"\\b(images|image|pictures|photos)\\b", args.task, re.IGNORECASE)
-        and re.search(r"grandes?\\s+ic[oô]nes|large\\s+icons", args.task, re.IGNORECASE)
+        re.search(r"\b(images|image|pictures|photos)\b", args.task, re.IGNORECASE)
+        and re.search(r"grandes?\s+ic[oô]nes|large\s+icons", args.task, re.IGNORECASE)
         and re.search(r"explorateur|explorer|fichiers", args.task, re.IGNORECASE)
     )
     asks_top_memory = bool(
@@ -333,10 +333,10 @@ def main():
             # Repair incomplete URLs and turn a YouTube video request into a direct search.
             if action == "open_url":
                 raw_url = str(decision.get("url") or "").strip()
-                markdown_link = re.fullmatch(r"\\[([^\\]]+)\\]\\((https?://[^)]+)\\)", raw_url)
+                markdown_link = re.fullmatch(r"\[([^\]]+)\]\((https?://[^)]+)\)", raw_url)
                 if markdown_link:
                     raw_url = markdown_link.group(2).strip()
-                raw_url = raw_url.replace("\\\\", "")
+                raw_url = raw_url.replace("\\", "")
                 parsed_url = urlparse(raw_url)
                 # A search phrase is not a URL. Convert it to a real Google search URL.
                 asks_web_search = bool(re.search(r"\b(recherche|rechercher|cherche|chercher|search)\b", args.task, re.IGNORECASE))
