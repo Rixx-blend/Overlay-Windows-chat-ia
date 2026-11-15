@@ -335,7 +335,7 @@ def find_latest_file(folder, extension):
         for current, dirs, files in os.walk(search_root):
             dirs[:] = [d for d in dirs if d.lower() not in {"node_modules", ".git", "$recycle.bin"}]
             for filename in files:
-                if filename.lower().endswith(ext):
+                if ext == "*" or filename.lower().endswith(ext):
                     candidate = Path(current) / filename
                     try:
                         modified = candidate.stat().st_mtime
