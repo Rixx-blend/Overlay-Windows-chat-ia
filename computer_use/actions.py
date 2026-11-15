@@ -617,19 +617,6 @@ def execute(action, confirm, expected_app=None):
     if kind == "done":
         return str(action.get("thought") or "Tâche terminée.")
     raise ValueError("Action inconnue ou interdite : " + str(kind))
-) { Start-Process calc.exe; Write-Output 'Calculatrice lancée directement' } "
-        "elseif ($n -match '^streamlabs( desktop)?
-        "else { $a=Get-StartApps | Where-Object { $_.Name -like ('*'+$n+'*') } | "
-        "Sort-Object @{Expression={if ($_.Name -ieq $n){0}elseif($_.Name -ilike ($n+'*')){1}else{2}}} | "
-        "Select-Object -First 1; "
-        "if ($a) { Start-Process explorer.exe -ArgumentList ('shell:AppsFolder\\'+$a.AppID); "
-        "Write-Output ('Application lancée : '+$a.Name) } "
-        "else { $exe=$null; "
-        "if ($n -match 'blender') { $exe=Get-ChildItem -Path ($env:ProgramFiles+'\\Blender Foundation') -Recurse -Filter blender.exe -ErrorAction SilentlyContinue | Select-Object -First 1 }; "
-        "if (-not $exe -and $n -match 'photoshop') { foreach ($root in @(($env:ProgramFiles+'\\Adobe'),(${env:ProgramFiles(x86)}+'\\Adobe'))) { $exe=Get-ChildItem -Path $root -Directory -Filter 'Adobe Photoshop*' -ErrorAction SilentlyContinue | ForEach-Object { Get-Item (Join-Path $_.FullName 'Photoshop.exe') -ErrorAction SilentlyContinue } | Select-Object -First 1; if ($exe) { break } } }; "
-        "if ($exe) { Start-Process $exe.FullName; Write-Output ('Application lancée : '+$exe.FullName) } "
-        "else { $c=Get-Command ($n+'.exe') -ErrorAction SilentlyContinue; if ($c) { Start-Process $c.Source; Write-Output ('Application lancée : '+$c.Source) } else { throw ('Application introuvable : '+$n) } } } }"
-    )
     result = subprocess.run(
         ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
         capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
