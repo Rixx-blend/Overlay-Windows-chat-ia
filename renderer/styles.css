@@ -1023,3 +1023,17 @@ details.sources .source-link:hover { opacity: 1; }
   stroke-linejoin: round;
 }
 .computer-report-copy.is-copied { color: #18794e; }
+
+
+/* Sélecteur principal Chat / Computer Use */
+.model-menu-legacy { display: none !important; }
+.mode-switch {
+  min-width: 104px;
+  justify-content: center;
+  font-weight: 650;
+  border: 1px solid rgba(255,255,255,.72);
+  background: rgba(255,255,255,.48);
+  transition: background .18s ease, color .18s ease, transform .18s ease;
+}
+.mode-switch:hover { transform: translateY(-1px); background: rgba(255,255,255,.78); }
+.mode-switch.on { color: #fff; background: rgba(88,75,190,.92); border-color: rgba(88,75,190,.35); }
