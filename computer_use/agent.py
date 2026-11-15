@@ -95,6 +95,7 @@ def main():
     blender_x_sent = False
     blender_enter_sent = False
     blender_enter_step = -1
+    calculator_opened = False
     log_dir = Path(args.logs)
     log_dir.mkdir(parents=True, exist_ok=True)
     emit("status", active=True, message="Initialisation du moteur Python…")
@@ -116,8 +117,6 @@ def main():
             class _POINT(ctypes.Structure):
                 _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
             _point = _POINT()
-            ctypes.windll.user32.GetCursorPos(ctypes.byref(_point))
-            emit("cursor", x=_point.x, y=_point.y, action="observe")
             screenshots.append(shot["data_url"])
             screenshots = screenshots[-2:]
             emit("history", item={"time": datetime.now(timezone.utc).isoformat(), "type": "observation", "detail": "Capture d’écran actualisée et transmise au modèle visuel pour examiner les éléments visibles."})
@@ -133,7 +132,17 @@ def main():
             )
             if asks_recent_download:
                 decision = {"action": "find_latest_file", "folder": "Téléchargements", "extension": "*",
-                            "thought": "Recherche du fichier le plus récent dans Téléchargements, tous formats confondus."}
+                            "thought": "Recherche du fichier le plus récent dans le dossier Téléchargements Windows."}
+                action = decision["action"]
+                thought = decision["thought"]
+
+            asks_calculator = (
+                bool(re.search(r"calculatrice|calculator", task_folded))
+                and bool(re.search(r"calcul|calcule|calculer|compute", task_folded))
+            )
+            if asks_calculator and not calculator_opened:
+                decision = {"action": "open_app", "app": "Calculatrice",
+                            "thought": "Ouverture de la Calculatrice Windows."}
                 action = decision["action"]
                 thought = decision["thought"]
 
@@ -309,6 +318,10 @@ def main():
                         blender_enter_sent = True
                         blender_enter_step = step
                         emit("status", active=True, message="Blender : confirmation envoyée, nouvelle capture pour vérifier la scène…")
+                if asks_calculator and action == "open_app" and str(decision.get("app", "")).casefold() == "calculatrice":
+                    calculator_opened = True
+                    emit("status", active=True, message="Calculatrice ouverte : lecture de l’écran avant la saisie du calcul…")
+                    time.sleep(1.0)
                 if blender_delete_task and action == "open_app":
                     emit("status", active=True, message="Blender détecté : attente de stabilisation de la vue 3D…")
                     time.sleep(2.0)
