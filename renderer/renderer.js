@@ -51,7 +51,9 @@ const LAUNCH_RE = /^(?:peux[- ]tu\s+)?(ouvre|ouvrir|lance|lancer|d[ée]marre|d[�
 const ASK_ACTION_RE = /(ouvr|lanc|d[ée]marr|ferm|supprim|effac|install|ex[ée]cut|affich|minimis|maximis|cr[ée]e|renomm|copi|colle)/i;
 const LEVEL_ORDER = ['low', 'high', 'max'];
 let busy = false;
-let activeComputerBubble = null;\nlet activeComputerLoader = null;\nlet activeComputerFeed = null;
+let activeComputerBubble = null;
+let activeComputerLoader = null;
+let activeComputerFeed = null;
 let recorder = null;
 let transcribing = false;
 let closeTimer = null;
