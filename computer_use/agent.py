@@ -7,6 +7,7 @@ import sys
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import quote_plus, urlparse
 
 try:
     ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
@@ -157,6 +158,47 @@ def main():
                     emit("history", item={"time": datetime.now(timezone.utc).isoformat(), "type": "replan", "detail": "Action incomplète : nouvelle décision demandée au modèle."})
                     emit("status", active=True, message="Correction de la décision…")
                     continue
+
+            # Repair incomplete URLs and turn a YouTube video request into a direct search.
+            if action == "open_url":
+                raw_url = str(decision.get("url") or "").strip()
+                parsed_url = urlparse(raw_url)
+                if not parsed_url.scheme and raw_url:
+                    # Models often return www.youtube.com without the required scheme.
+                    if "." in raw_url.split("/")[0] and " " not in raw_url:
+                        raw_url = "https://" + raw_url.lstrip("/")
+                        parsed_url = urlparse(raw_url)
+
+                task_lower_for_url = args.task.casefold()
+                asks_youtube_video = (
+                    "youtube" in task_lower_for_url
+                    and any(word in task_lower_for_url for word in ("vidéo", "video"))
+                )
+                if asks_youtube_video and (
+                    not raw_url
+                    or parsed_url.scheme not in {"http", "https"}
+                    or not parsed_url.netloc
+                    or parsed_url.netloc.casefold() in {"youtube.com", "www.youtube.com", "m.youtube.com"}
+                    and parsed_url.path in {"", "/"}
+                ):
+                    # Extract the subject after the user's mention of a video.
+                    subject = ""
+                    match = re.search(
+                        r"vid[eé]os?\\s+(?:sur|de|d['’]|que|concernant|à propos de)\\s+(.+)$",
+                        args.task,
+                        re.IGNORECASE,
+                    )
+                    if match:
+                        subject = match.group(1).strip(" \\t.!?").strip()
+                        subject = re.sub(r"^(?:l['’]|le |la |les |un |une )", "", subject, flags=re.IGNORECASE)
+                    if not subject:
+                        subject_match = re.search(r"informatique\\s+quantique", args.task, re.IGNORECASE)
+                        subject = subject_match.group(0) if subject_match else "informatique quantique"
+                    decision["url"] = "https://www.youtube.com/results?search_query=" + quote_plus(subject)
+                    thought = "Recherche du sujet demandé directement sur YouTube."
+                    decision["thought"] = thought
+                elif raw_url != str(decision.get("url") or "").strip():
+                    decision["url"] = raw_url
 
             # Correct a common vision-model mistake: treating Downloads itself as a file.
             task_lower = args.task.casefold()
