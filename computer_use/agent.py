@@ -107,7 +107,21 @@ def main():
             decision = brain.decide(args.task, history, screenshots)
             action = decision.get("action")
             thought = str(decision.get("thought") or "").strip()[:400]
-\n            # Reject invented natural-language actions before they reach the executor.\n            allowed_actions = {"left_click", "double_click", "right_click", "type", "hotkey", "scroll", "wait", "open_app", "open_url", "find_latest_file", "open_file", "done"}\n            if action not in allowed_actions:\n                invalid_plan_count += 1\n                error_detail = "Action non autorisée retournée par le modèle : " + str(action)[:100]\n                history.append("ERREUR DE PLANIFICATION : " + error_detail + ". Choisis exclusivement une action dans cette liste : " + ", ".join(sorted(allowed_actions)) + ". Pour YouTube, utilise open_url ou les contrôles du navigateur. N'invente pas d'action et ne délègue pas à ChatGPT.")\n                emit("history", item={"time": datetime.now(timezone.utc).isoformat(), "type": "replan", "detail": error_detail})\n                if invalid_plan_count >= 3:\n                    emit("status", active=False, message="Le modèle a produit 3 actions non autorisées. Arrêt de sécurité.", error=True)\n                    break\n                emit("status", active=True, message="Action invalide : nouvelle décision demandée…")\n                continue\n            invalid_plan_count = 0\n
+
+            # Reject invented natural-language actions before they reach the executor.
+            allowed_actions = {"left_click", "double_click", "right_click", "type", "hotkey", "scroll", "wait", "open_app", "open_url", "find_latest_file", "open_file", "done"}
+            if action not in allowed_actions:
+                invalid_plan_count += 1
+                error_detail = "Action non autorisée retournée par le modèle : " + str(action)[:100]
+                history.append("ERREUR DE PLANIFICATION : " + error_detail + ". Choisis exclusivement une action dans cette liste : " + ", ".join(sorted(allowed_actions)) + ". Pour YouTube, utilise open_url ou les contrôles du navigateur. N'invente pas d'action et ne délègue pas à ChatGPT.")
+                emit("history", item={"time": datetime.now(timezone.utc).isoformat(), "type": "replan", "detail": error_detail})
+                if invalid_plan_count >= 3:
+                    emit("status", active=False, message="Le modèle a produit 3 actions non autorisées. Arrêt de sécurité.", error=True)
+                    break
+                emit("status", active=True, message="Action invalide : nouvelle décision demandée…")
+                continue
+            invalid_plan_count = 0
+
             # Recover from a common planner error: a website was emitted as an app,
             # or open_app was returned without the required app name.
             if action == "open_app":
