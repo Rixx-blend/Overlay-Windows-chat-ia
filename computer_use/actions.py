@@ -782,7 +782,7 @@ def execute(action, confirm, expected_app=None):
             raise RuntimeError("Windows n'a pas pu placer le curseur sur la zone à faire défiler.")
         # WM_MOUSEWHEEL : positif = haut, négatif = bas. Le défilement visuel
         # ne dépend pas de la présence d'un ScrollPattern UI Automation.
-        user32.mouse_event(0x0800, 0, 0, int(amount * 120), 0)
+        user32.mouse_event(0x0800, 0, 0, ctypes.c_uint32(amount * 120).value, 0)
         return "Défilement visuel envoyé à Windows à l'emplacement (" + str(x) + ", " + str(y) + ")."
     if kind == "get_windows_version":
         import winreg
