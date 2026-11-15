@@ -61,7 +61,12 @@ const DEFAULTS = {
 };
 
 let win = null;
-const computerUse = createComputerUse({ desktopCapturer, screen, execFile, clipboard, getWindow: () => win });
+let cursorWin = null;
+const computerUse = createComputerUse({
+  desktopCapturer, screen, execFile, clipboard,
+  getWindow: () => win,
+  getCursorWindow: () => cursorWin,
+});
 let liveGlass = true; // true : verre live, overlay masqué des captures ; false : fond figé, overlay visible
 let settings = { ...DEFAULTS };
 let firstRun = false;
@@ -160,6 +165,27 @@ function createWindow() {
     win.webContents.send('visibility', true);
   });
   win.on('hide', () => win.webContents.send('visibility', false));
+}
+
+// Curseur virtuel Computer Use : fenêtre transparente, plein écran et totalement non interactive.
+function createCursorWindow() {
+  const bounds = screen.getPrimaryDisplay().bounds;
+  cursorWin = new BrowserWindow({
+    x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height,
+    frame: false, transparent: true, resizable: false, movable: false,
+    minimizable: false, maximizable: false, closable: false,
+    skipTaskbar: true, alwaysOnTop: true, hasShadow: false, focusable: false,
+    show: false,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      backgroundThrottling: false,
+    },
+  });
+  cursorWin.setAlwaysOnTop(true, 'screen-saver');
+  cursorWin.setIgnoreMouseEvents(true);
+  cursorWin.loadFile(path.join(__dirname, 'renderer', 'ai-cursor.html'));
+  cursorWin.on('closed', () => { cursorWin = null; });
 }
 
 // Flux de l'écran pour le verre (getDisplayMedia)
@@ -1776,6 +1802,7 @@ app.whenReady().then(() => {
   loadSettings();
   if (firstRun) saveSettings();
 
+  createCursorWindow();
   createWindow();
   setInterval(trackCursor, 40);
   setupCapture();
