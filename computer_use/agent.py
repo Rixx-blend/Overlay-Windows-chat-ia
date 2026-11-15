@@ -84,6 +84,7 @@ def main():
     history = []
     screenshots = []
     repeated_errors = {}
+    invalid_plan_count = 0
     log_dir = Path(args.logs)
     log_dir.mkdir(parents=True, exist_ok=True)
     emit("status", active=True, message="Initialisation du moteur Python…")
@@ -134,6 +135,10 @@ def main():
                     action = "open_url"
                     thought = decision["thought"]
                 elif not app_name:
+                    invalid_plan_count += 1
+                    if invalid_plan_count >= 3:
+                        emit("status", active=False, message="Le modèle n'arrive pas à choisir une action valide après 3 tentatives. La tâche est arrêtée sans action incorrecte.", error=True)
+                        break
                     history.append("ERREUR DE PLANIFICATION : open_app exige un nom d'application. La tâche peut concerner un site Web ou le navigateur déjà ouvert. Observe la capture et choisis open_url pour un site, ou une action de navigation dans le navigateur existant. Ne répète pas open_app sans nom.")
                     emit("history", item={"time": datetime.now(timezone.utc).isoformat(), "type": "replan", "detail": "Action incomplète : nouvelle décision demandée au modèle."})
                     emit("status", active=True, message="Correction de la décision…")
