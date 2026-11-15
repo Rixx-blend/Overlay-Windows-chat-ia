@@ -620,8 +620,49 @@ def _get_top_memory_apps():
     return "Top 3 des applications visibles par mémoire utilisée (Working Set) :\\n" + "\\n".join(lines)
 
 
+def _launch_epic_and_fortnite():
+    """Launch Epic Games Launcher and verify Fortnite's process after its official URI is invoked."""
+    script = r'''
+$ErrorActionPreference = 'Stop'
+$epic = Get-Process -Name 'EpicGamesLauncher' -ErrorAction SilentlyContinue | Select-Object -First 1
+if (-not $epic) {
+    $app = Get-StartApps | Where-Object { $_.Name -match '(?i)Epic Games Launcher' } | Select-Object -First 1
+    if ($app) { Start-Process explorer.exe -ArgumentList ('shell:AppsFolder\' + $app.AppID) }
+    else {
+        $paths = @(
+            "$env:ProgramFiles(x86)\Epic Games\Launcher\Portal\Binaries\Win64\EpicGamesLauncher.exe",
+            "$env:ProgramFiles\Epic Games\Launcher\Portal\Binaries\Win64\EpicGamesLauncher.exe",
+            "$env:LOCALAPPDATA\Programs\Epic Games\Launcher\Portal\Binaries\Win64\EpicGamesLauncher.exe"
+        )
+        $exe = $paths | Where-Object { Test-Path $_ } | Select-Object -First 1
+        if (-not $exe) { throw 'Epic Games Launcher est introuvable dans les applications installées et les emplacements standards.' }
+        Start-Process $exe
+    }
+    $deadline = (Get-Date).AddSeconds(45)
+    do { Start-Sleep -Seconds 1; $epic = Get-Process -Name 'EpicGamesLauncher' -ErrorAction SilentlyContinue | Select-Object -First 1 } until ($epic -or (Get-Date) -ge $deadline)
+    if (-not $epic) { throw 'Epic Games Launcher a été demandé, mais son processus ne démarre pas.' }
+}
+$game = Get-Process -Name 'FortniteClient-Win64-Shipping' -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($game) { Write-Output 'Fortnite est déjà lancé et son processus est détecté.'; exit 0 }
+Start-Process 'com.epicgames.launcher://apps/Fortnite?action=launch&silent=true'
+$deadline = (Get-Date).AddSeconds(120)
+do { Start-Sleep -Seconds 2; $game = Get-Process -Name 'FortniteClient-Win64-Shipping' -ErrorAction SilentlyContinue | Select-Object -First 1 } until ($game -or (Get-Date) -ge $deadline)
+if (-not $game) { throw 'La demande de lancement a été envoyée à Epic Games Launcher, mais Fortnite n’a pas démarré dans les 120 secondes. Vérifier une éventuelle mise à jour, connexion ou fenêtre de confirmation dans Epic.' }
+Write-Output 'Fortnite est lancé : processus FortniteClient-Win64-Shipping détecté.'
+'''
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        timeout=175, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    if result.returncode:
+        raise RuntimeError((result.stderr or result.stdout or "Échec du lancement d’Epic Games / Fortnite.").strip()[:700])
+    return (result.stdout or "Epic Games Launcher et Fortnite ont été détectés.").strip()
+
 def execute(action, confirm, expected_app=None):
     kind = action.get("action")
+    if kind == "launch_epic_fortnite":
+        return _launch_epic_and_fortnite()
     if kind == "open_images_large_icons":
         return _open_images_large_icons()
     if kind == "get_top_memory_apps":
