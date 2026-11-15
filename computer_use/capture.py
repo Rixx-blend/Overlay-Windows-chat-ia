@@ -13,7 +13,7 @@ MAX_SIZE = (1366, 768)
 
 def capture_screen(add_grid=False):
     with mss.mss() as capture:
-        monitor = capture.monitors[1]
+        monitor = capture.monitors[0]  # écran virtuel : inclut tous les moniteurs, pas seulement le principal
         shot = capture.grab(monitor)
         image = Image.frombytes("RGB", shot.size, shot.rgb)
         original_size = image.size
