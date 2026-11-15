@@ -1,4 +1,4 @@
-const { app, dialog } = require('electron');
+const { app, dialog, screen } = require('electron');
 const { spawn, spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -109,7 +109,14 @@ function createComputerUse({ getWindow, getCursorWindow }) {
     if (id !== runId) return;
     if (message.event === 'cursor') {
       const cursor = getCursorWindow && getCursorWindow();
-      if (cursor && !cursor.isDestroyed()) cursor.webContents.send('ai-cursor-position', message);
+      if (cursor && !cursor.isDestroyed()) {
+        const display = screen.getPrimaryDisplay();
+        cursor.webContents.send('ai-cursor-position', {
+          ...message,
+          x: Number(message.x || 0) / display.scaleFactor,
+          y: Number(message.y || 0) / display.scaleFactor,
+        });
+      }
       return;
     }
     if (message.event === 'status') {
