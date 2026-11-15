@@ -110,7 +110,7 @@ def main():
             thought = str(decision.get("thought") or "").strip()[:400]
 
             # Reject invented natural-language actions before they reach the executor.
-            allowed_actions = {"left_click", "double_click", "right_click", "type", "hotkey", "scroll", "wait", "open_app", "open_url", "find_latest_file", "open_file", "done"}
+            allowed_actions = {"left_click", "double_click", "type", "hotkey", "scroll", "wait", "open_app", "open_url", "find_latest_file", "open_file", "done"}
             if action not in allowed_actions:
                 invalid_plan_count += 1
                 error_detail = "Action non autorisée retournée par le modèle : " + str(action)[:100]
