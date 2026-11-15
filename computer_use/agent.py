@@ -363,11 +363,11 @@ def main():
 
             try:
                 if action in {"left_click", "double_click", "scroll"}:
-                    emit("cursor", x=round(float(decision.get("x", 0)) * shot["screen_width"] / 1000),
-                         y=round(float(decision.get("y", 0)) * shot["screen_height"] / 1000), action=action)
+                    emit("cursor", x=shot.get("screen_left", 0) + round(float(decision.get("x", 0)) * shot["screen_width"] / 1000),
+                         y=shot.get("screen_top", 0) + round(float(decision.get("y", 0)) * shot["screen_height"] / 1000), action=action)
                 result = execute(decision, confirm, expected_app=expected_app)
                 if action in {"type", "hotkey", "calculate"}:
-                    app_center = get_app_window_center(_foreground_app_hint(args.task))
+                    app_center = get_app_window_center("Calculatrice" if asks_calculator else ("Bloc-notes" if expected_app else "Google Chrome"))
                     if app_center:
                         emit("cursor", x=app_center[0], y=app_center[1], action="move")
                 if action == "open_app":
