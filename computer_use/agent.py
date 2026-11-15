@@ -384,7 +384,6 @@ def main():
             listener.stop()
         except Exception:
             pass
-        emit("status", active=False, message="Agent inactif.")
 
 
 if __name__ == "__main__":
