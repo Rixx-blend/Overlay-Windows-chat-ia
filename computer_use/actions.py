@@ -173,11 +173,9 @@ def execute(action, confirm):
         element = _uia_element_at(x, y)
         if kind == "right_click":
             raise RuntimeError("Le clic droit indépendant n'est pas pris en charge par UI Automation pour ce contrôle.")
-        if kind == "double_click":
-            _uia_invoke(element)
-            _uia_invoke(element)
-        else:
-            _uia_invoke(element)
+        # UIA Invoke activates the target without generating a physical double-click.
+        # Avoid invoking twice: toggle controls could otherwise open then immediately close.
+        _uia_invoke(element)
         return "Action exécutée via Windows UI Automation, sans déplacer la souris physique."
     if kind == "type":
         value = str(action.get("text") or "")[:2000]
