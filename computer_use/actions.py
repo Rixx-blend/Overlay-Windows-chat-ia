@@ -108,7 +108,6 @@ def _uia_invoke(element):
 
 
 def _find_window(title_fragment):
-    user32 = user32
     matches = []
 
     @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
@@ -130,7 +129,6 @@ def _find_window(title_fragment):
 
 def _activate_existing_window(title_fragment):
     """Restore and focus an already-running app window."""
-    user32 = user32
     hwnd = _find_window(title_fragment)
     if not hwnd:
         return False
@@ -230,7 +228,6 @@ def _activate_app_window(name, timeout=15):
 
 def get_app_window_center(name):
     """Return the center of the requested app window in physical screen pixels."""
-    user32 = user32
     for title in _app_title_aliases(name):
         hwnd = _find_window(title)
         if hwnd:
@@ -244,7 +241,6 @@ def get_app_window_center(name):
 
 
 def _foreground_title():
-    user32 = user32
     hwnd = user32.GetForegroundWindow()
     if not hwnd:
         return ""
@@ -266,7 +262,6 @@ def _require_expected_app(expected_app):
 def _wait_for_blender_ready(timeout=90):
     """Wait for Blender's actual top-level window, focus it, then allow its UI to settle."""
     deadline = time.monotonic() + timeout
-    user32 = user32
     while time.monotonic() < deadline:
         hwnd = _find_window("Blender")
         if hwnd:
@@ -457,7 +452,6 @@ def find_latest_file(folder, extension):
 
 def _send_windows_hotkey(keys):
     """Send a key chord through Win32 virtual-key events (not pyautogui's key parser)."""
-    user32 = user32
     modifiers = {
         "ctrl": 0x11, "shift": 0x10, "alt": 0x12,
     }
@@ -519,7 +513,6 @@ def execute(action, confirm, expected_app=None):
         # in standard edit controls, WinUI/UWP apps and custom fields that expose
         # no UIA ValuePattern. It does not move the user's physical mouse.
         _require_expected_app(expected_app)
-        user32 = user32
         if not user32.GetForegroundWindow():
             raise RuntimeError("Aucune fenêtre active pour recevoir le texte.")
         class KEYBDINPUT(ctypes.Structure):
@@ -566,7 +559,6 @@ def execute(action, confirm, expected_app=None):
         left, operator, right = match.groups()
         operator_keys = {"+": 0x6B, "×": 0x6A, "x": 0x6A, "X": 0x6A,
                          "*": 0x6A, "÷": 0x6F, "/": 0x6F, "−": 0x6D, "-": 0x6D}
-        user32 = user32
         sequence = [0x60 + int(digit) for digit in left] + [operator_keys[operator]] + [0x60 + int(digit) for digit in right] + [0x0D]
         for vk in sequence:
             user32.keybd_event(vk, 0, 0, 0)
