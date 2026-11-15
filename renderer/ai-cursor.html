@@ -25,11 +25,9 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent
 <script>
 const cursor=document.getElementById('cursor');
 let clickTimer;
-window.cursorApi={
- move({x,y}){cursor.style.left=Math.max(0,Math.min(innerWidth,x))+'px';cursor.style.top=Math.max(0,Math.min(innerHeight,y))+'px';cursor.classList.add('visible');},
- visible(value){cursor.classList.toggle('visible',!!value);},
- click(){cursor.classList.remove('click');void cursor.offsetWidth;cursor.classList.add('click');clearTimeout(clickTimer);clickTimer=setTimeout(()=>cursor.classList.remove('click'),450);}
-};
+function move({x,y,action}){cursor.style.left=Math.max(0,Math.min(innerWidth,x))+'px';cursor.style.top=Math.max(0,Math.min(innerHeight,y))+'px';cursor.classList.add('visible');if(['left_click','double_click','right_click'].includes(action)){cursor.classList.remove('click');void cursor.offsetWidth;cursor.classList.add('click');clearTimeout(clickTimer);clickTimer=setTimeout(()=>cursor.classList.remove('click'),450);}}
+window.aiCursor?.onPosition(move);
+window.aiCursor?.onVisible(value=>cursor.classList.toggle('visible',!!value));
 </script>
 </body>
 </html>
