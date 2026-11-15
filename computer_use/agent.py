@@ -137,7 +137,8 @@ def main():
             screenshots.append(shot["data_url"])
             screenshots = screenshots[-2:]
             if not cursor_initialized:
-                emit("cursor", x=shot["screen_width"] // 2, y=shot["screen_height"] // 2, action="observe")
+                emit("cursor", x=shot.get("screen_left", 0) + shot["screen_width"] // 2,
+                     y=shot.get("screen_top", 0) + shot["screen_height"] // 2, action="observe")
                 cursor_initialized = True
             emit("history", item={"time": datetime.now(timezone.utc).isoformat(), "type": "observation", "detail": "Capture d’écran actualisée et transmise au modèle visuel pour examiner les éléments visibles."})
             decision = brain.decide(args.task, history, screenshots)
@@ -363,14 +364,19 @@ def main():
                     break
 
             try:
-                if action in {"left_click", "double_click", "scroll"}:
-                    emit("cursor", x=shot.get("screen_left", 0) + round(float(decision.get("x", 0)) * shot["screen_width"] / 1000),
-                         y=shot.get("screen_top", 0) + round(float(decision.get("y", 0)) * shot["screen_height"] / 1000), action=action)
-                result = execute(decision, confirm, expected_app=expected_app)
-                if action in {"type", "hotkey", "calculate"}:
+                # Déplacer le curseur AVANT l'action système. Le curseur suivait
+                # auparavant uniquement certains clics, et les déplacements liés
+                # à la saisie étaient envoyés après l'action : visuellement il
+                # semblait donc figé pendant presque toute l'exécution.
+                if decision.get("x") is not None and decision.get("y") is not None:
+                    cursor_x = shot.get("screen_left", 0) + round(float(decision["x"]) * shot["screen_width"] / 1000)
+                    cursor_y = shot.get("screen_top", 0) + round(float(decision["y"]) * shot["screen_height"] / 1000)
+                    emit("cursor", x=cursor_x, y=cursor_y, action=action or "move")
+                elif action in {"type", "hotkey", "calculate"}:
                     app_center = get_app_window_center("Calculatrice" if asks_calculator else ("Bloc-notes" if expected_app else "Google Chrome"))
                     if app_center:
                         emit("cursor", x=app_center[0], y=app_center[1], action="move")
+                result = execute(decision, confirm, expected_app=expected_app)
                 if action == "open_app":
                     app_center = get_app_window_center(decision.get("app", ""))
                     if app_center:
