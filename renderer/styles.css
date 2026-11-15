@@ -986,3 +986,8 @@ details.sources .source-link:hover { opacity: 1; }
   .computer-live-expand, .computer-live-expand svg { transition: none; }
   .computer-live-expanded { animation: none; }
 }
+
+/* Rapport exportable des sessions Computer Use */
+.computer-control-actions { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:6px; }
+.computer-copy-report { font-size:11px; }
+.computer-copy-report[hidden] { display:none; }
