@@ -20,7 +20,7 @@ except Exception:
 
 from pynput import keyboard
 
-from actions import execute
+from actions import execute, get_app_window_center
 from brain import LocalVisionBrain
 from capture import capture_screen, save_debug_capture
 
@@ -323,6 +323,10 @@ def main():
                     emit("cursor", x=round(float(decision.get("x", 0)) * shot["screen_width"] / 1000),
                          y=round(float(decision.get("y", 0)) * shot["screen_height"] / 1000), action=action)
                 result = execute(decision, confirm, expected_app=expected_app)
+                if action == "open_app":
+                    app_center = get_app_window_center(decision.get("app", ""))
+                    if app_center:
+                        emit("cursor", x=app_center[0], y=app_center[1], action="move")
                 if blender_delete_task and action == "hotkey":
                     sent_keys = [str(key).lower() for key in (decision.get("keys") or [])]
                     if sent_keys == ["x"]:
