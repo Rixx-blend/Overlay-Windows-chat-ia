@@ -1003,20 +1003,13 @@ async function generateImageInChat(prompt, referenceImages = []) {
       [/\bplage\b/i, 'beach'],
       [/\bforêt\b/i, 'forest'],
       [/\bville\b/i, 'city street'],
-      // Expressions du visage : les mots français seuls sont trop faibles pour SDXL.
-      [/\bcolère\b|\bfâché\b|\benervé\b|\bénervé\b/i, 'angry expression, furrowed eyebrows, frowning, scowling face'],
-      [/\btriste\b|\bpleure\b|\bpleurs\b/i, 'sad expression, teary eyes, downturned mouth'],
-      [/\bjoie\b|\bjoyeux\b|\bsouriant\b|\bheureux\b/i, 'happy expression, big smile'],
     ];
     const extraKeywords = frenchKeywords.filter(([pattern]) => pattern.test(cleanPrompt)).map(([, english]) => english);
     const promptWithKeywords = extraKeywords.length ? extraKeywords.join(', ') + ', ' + cleanPrompt : cleanPrompt;
     // En modification, on ajoute des négatifs structurels pour éviter les doublons
     // ou les membres en trop sur un personnage déjà présent dans la référence.
-    // Quand on demande une colère ou une tristesse, on empêche le visage de garder son sourire d'origine.
-    const expressionNegative = /\bcolère\b|\bfâché\b|\benervé\b|\bénervé\b|\btriste\b|\bpleure\b/i.test(cleanPrompt)
-      ? ', smiling, happy face' : '';
     const negative = 'low quality, blurry, distorted, deformed, text, watermark'
-      + (hasReference ? ', extra limbs, duplicate, multiple heads, cropped' : '') + expressionNegative;
+      + (hasReference ? ', extra limbs, duplicate, multiple heads, cropped' : '');
     const generated = await bridge.generateImage({
       prompt: style ? promptWithKeywords + ', ' + style : promptWithKeywords,
       negative,
