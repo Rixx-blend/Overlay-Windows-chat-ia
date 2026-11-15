@@ -818,3 +818,78 @@ details.sources .source-link:hover { opacity: 1; }
 .computer-history { display:flex; flex-direction:column; gap:4px; max-height:130px; overflow:auto; margin-top:8px; padding:7px; border-radius:11px; background:rgba(255,255,255,.25); }
 .computer-history-item { font-size:10.5px; line-height:1.4; opacity:.8; overflow-wrap:anywhere; }
 .computer-history-item:first-child { opacity:1; }
+
+
+
+/* ---------- Activité Computer Use : grille animée et journal en direct ---------- */
+.computer-live {
+  min-width: 0;
+  padding: 2px 0 1px;
+}
+.computer-live .thinking {
+  gap: 10px;
+  min-height: 24px;
+  padding: 3px 0 8px;
+}
+.computer-live .px-grid {
+  grid-template-columns: repeat(4, 5px);
+  gap: 2px;
+  perspective: 80px;
+}
+.computer-live .px-grid span {
+  width: 5px;
+  height: 5px;
+  border-radius: 1.5px;
+  background: #7662ed;
+  box-shadow: 0 0 7px rgba(118,98,237,.25);
+  animation: computer-pixel-wave 900ms cubic-bezier(.2,.7,.2,1) infinite;
+}
+@keyframes computer-pixel-wave {
+  0%, 100% { opacity: .18; transform: scale(.72) rotateX(0deg); }
+  45% { opacity: 1; transform: scale(1.12) rotateX(18deg); }
+}
+.computer-live-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-height: 142px;
+  overflow: hidden;
+  padding: 1px 0 0 2px;
+}
+.computer-live-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  animation: computer-activity-in .24s cubic-bezier(.2,.8,.2,1) both;
+}
+.computer-live-mark {
+  flex: 0 0 5px;
+  width: 5px;
+  height: 5px;
+  margin-top: 5px;
+  border-radius: 2px;
+  background: #7662ed;
+  box-shadow: 0 0 7px rgba(118,98,237,.38);
+}
+.computer-live-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 1px;
+  font-size: 11.5px;
+  line-height: 1.35;
+}
+.computer-live-copy strong { font-weight: 600; color: rgba(20,20,25,.9); }
+.computer-live-detail {
+  color: rgba(35,35,42,.58);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+@keyframes computer-activity-in {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .computer-live .px-grid span, .computer-live-item { animation: none; }
+}
