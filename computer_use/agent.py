@@ -102,6 +102,12 @@ def main():
     cursor_initialized = False
     asks_streamlabs_recording = bool(re.search(r"streamlabs", args.task, re.IGNORECASE) and re.search(r"enregistr|record|capture d[’']écran|capture écran", args.task, re.IGNORECASE))
     streamlabs_launch_requested = False
+    asks_windows_version = bool(
+        re.search(r"\\b(version|build)\\b", args.task, re.IGNORECASE)
+        and re.search(r"\\b(windows|param[eè]tres)\\b", args.task, re.IGNORECASE)
+    )
+    windows_settings_opened = False
+    windows_version_retrieved = False
     last_open_app = ""
     repeated_open_app_count = 0
 
@@ -158,6 +164,16 @@ def main():
             if asks_streamlabs_recording and not streamlabs_launch_requested:
                 decision = {"action": "open_app", "app": "Streamlabs Desktop",
                             "thought": "Lancement de l’application Streamlabs Desktop avant de repérer le contrôle d’enregistrement local."}
+                action = decision["action"]
+                thought = decision["thought"]
+            if asks_windows_version and not windows_settings_opened:
+                decision = {"action": "open_app", "app": "Paramètres Windows",
+                            "thought": "Ouverture directe de Paramètres Windows sur la page Informations système."}
+                action = decision["action"]
+                thought = decision["thought"]
+            elif asks_windows_version and windows_settings_opened and not windows_version_retrieved:
+                decision = {"action": "get_windows_version",
+                            "thought": "Lecture de l’édition, de la version et du numéro de build exacts dans le Registre Windows."}
                 action = decision["action"]
                 thought = decision["thought"]
 
@@ -233,7 +249,7 @@ def main():
                     continue
 
             # Reject invented natural-language actions before they reach the executor.
-            allowed_actions = {"left_click", "double_click", "type", "hotkey", "scroll", "wait", "open_app", "open_url", "find_latest_file", "open_file", "calculate", "done"}
+            allowed_actions = {"left_click", "double_click", "type", "hotkey", "scroll", "wait", "open_app", "open_url", "find_latest_file", "open_file", "calculate", "get_windows_version", "done"}
             if action not in allowed_actions:
                 invalid_plan_count += 1
                 error_detail = "Action non autorisée retournée par le modèle : " + str(action)[:100]
@@ -342,6 +358,17 @@ def main():
                     decision["thought"] = thought
                 elif raw_url != str(decision.get("url") or "").strip():
                     decision["url"] = raw_url
+                final_url = urlparse(str(decision.get("url") or "").strip())
+                if final_url.scheme not in {"http", "https"} or not final_url.netloc:
+                    invalid_plan_count += 1
+                    detail = "URL invalide rejetée avant exécution. Pour une application Windows, utilise open_app ; pour un site, fournis une URL http(s) complète."
+                    history.append(detail)
+                    emit("history", item={"time": datetime.now(timezone.utc).isoformat(), "type": "replan", "detail": detail})
+                    if invalid_plan_count >= 3:
+                        emit("status", active=False, message="Trois URL invalides proposées : tâche arrêtée sans ouvrir d'adresse incorrecte.", error=True)
+                        break
+                    emit("status", active=True, message="Adresse invalide : nouvelle décision demandée…")
+                    continue
 
             # Correct a common vision-model mistake: treating Downloads itself as a file.
             task_lower = args.task.casefold()
@@ -398,6 +425,18 @@ def main():
                     if app_center:
                         emit("cursor", x=app_center[0], y=app_center[1], action="move")
                 result = execute(decision, confirm, expected_app=expected_app)
+                if action == "open_app" and asks_windows_version and str(decision.get("app", "")).casefold() == "paramètres windows":
+                    windows_settings_opened = True
+                    emit("history", item={"time": datetime.now(timezone.utc).isoformat(), "type": "open_app", "detail": result})
+                    emit("status", active=True, message=result + " Vérification de la version exacte…")
+                    time.sleep(1.0)
+                    continue
+                if action == "get_windows_version":
+                    windows_version_retrieved = True
+                    emit("history", item={"time": datetime.now(timezone.utc).isoformat(), "type": "get_windows_version", "detail": result})
+                    emit("history", item={"time": datetime.now(timezone.utc).isoformat(), "type": "done", "detail": result})
+                    emit("status", active=False, message=result)
+                    break
                 if action == "open_app" and asks_streamlabs_recording and str(decision.get("app", "")).casefold().startswith("streamlabs"):
                     streamlabs_launch_requested = True
                     emit("status", active=True, message="Streamlabs ouvert : attente de stabilisation avant de repérer le bouton d’enregistrement…")
