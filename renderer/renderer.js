@@ -16,9 +16,6 @@ const menu = $('menu');
 const settingsBtn = $('settingsBtn');
 const closePanel = $('closePanel');
 const imageModeBtn = $('imageModeBtn');
-const windowMinimize = $('windowMinimize');
-const windowMaximize = $('windowMaximize');
-const windowClose = $('windowClose');
 
 
 // Seule IA utilisée : la locale (Ollama). Pas de clé API nécessaire pour le chat.
@@ -67,7 +64,6 @@ let dragQueued = false;
 
 // ---------- Ouverture / fermeture de la carte ----------
 function setOpen(open) {
-  if (document.body.classList.contains('window-maximized')) open = true;
   card.classList.toggle('open', open);
 }
 
@@ -100,19 +96,6 @@ function scheduleClose() {
     if (canClose()) setOpen(false);
   }, 300);
 }
-
-windowMinimize.addEventListener('click', () => bridge.minimizeWindow());
-windowMaximize.addEventListener('click', () => bridge.toggleMaximizeWindow());
-windowClose.addEventListener('click', () => bridge.closeWindow());
-bridge.onWindowMaximized((maximized) => {
-  document.body.classList.toggle('window-maximized', !!maximized);
-  card.classList.toggle('open', !!maximized);
-  windowMaximize.title = maximized ? 'Revenir à la taille actuelle' : 'Agrandir';
-  windowMaximize.setAttribute('aria-label', maximized ? 'Revenir à la taille actuelle' : 'Agrandir');
-  windowMaximize.innerHTML = maximized
-    ? '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="5" width="11" height="11" rx="1"/><path d="M5 8v11h11"/></svg>'
-    : '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>';
-});
 
 // Le processus principal indique si le curseur est sur la carte
 bridge.onHover((v) => {
