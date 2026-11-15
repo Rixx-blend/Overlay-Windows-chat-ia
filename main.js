@@ -822,6 +822,12 @@ ipcMain.handle('computer-use-start', async (_e, task) => {
 ipcMain.handle('computer-use-stop', () => { computerUse.stop(); return { ok: true }; });
 ipcMain.handle('computer-use-approve', (_e, approved) => { computerUse.approve(approved); return { ok: true }; });
 ipcMain.handle('computer-use-state', () => computerUse.getState());
+ipcMain.handle('copy-computer-report', (_e, report) => {
+  const content = String(report || '').slice(0, 2000000);
+  if (!content.trim()) return { ok: false, error: 'Rapport vide.' };
+  clipboard.writeText(content);
+  return { ok: true };
+});
 // ---------- IPC : paramètres, IA locale, mises à jour ----------
 ipcMain.handle('get-settings', () => settings);
 ipcMain.handle('set-settings', (_e, patch) => {
