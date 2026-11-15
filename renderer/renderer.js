@@ -1233,23 +1233,23 @@ function attachComputerReportCopyButton(bubble) {
   button.className = 'computer-report-copy';
   button.title = 'Copier tous les logs de cette tâche';
   button.setAttribute('aria-label', 'Copier tous les logs de cette tâche');
-  button.innerHTML = '<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="6.5" y="6.5" width="10" height="11" rx="1.8"></rect><path d="M13.5 6.5V4.8A1.8 1.8 0 0 0 11.7 3H5.8A1.8 1.8 0 0 0 4 4.8v8.4A1.8 1.8 0 0 0 5.8 15h.7"></path></svg><span>Copier les logs</span>';
+  button.innerHTML = '<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="6.5" y="6.5" width="10" height="11" rx="1.8"></rect><path d="M13.5 6.5V4.8A1.8 1.8 0 0 0 11.7 3H5.8A1.8 1.8 0 0 0 4 4.8v8.4A1.8 1.8 0 0 0 5.8 15h.7"></path></svg>';
   button.addEventListener('click', async () => {
     button.disabled = true;
     const result = await bridge.copyComputerReport(report);
     button.disabled = false;
     if (result && result.ok) {
       button.classList.add('is-copied');
-      button.querySelector('span').textContent = 'Logs copiés';
-      button.title = 'Rapport copié dans le presse-papiers';
+      button.innerHTML = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="m4 10 4 4 8-8"></path></svg>';
+      button.title = 'Logs copiés dans le presse-papiers';
       setTimeout(() => {
         button.classList.remove('is-copied');
-        button.querySelector('span').textContent = 'Copier les logs';
+        button.innerHTML = '<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="6.5" y="6.5" width="10" height="11" rx="1.8"></rect><path d="M13.5 6.5V4.8A1.8 1.8 0 0 0 11.7 3H5.8A1.8 1.8 0 0 0 4 4.8v8.4A1.8 1.8 0 0 0 5.8 15h.7"></path></svg>';
         button.title = 'Copier tous les logs de cette tâche';
       }, 1800);
     } else {
       button.title = (result && result.error) || 'Copie impossible';
-      button.querySelector('span').textContent = 'Échec de la copie';
+      button.title = (result && result.error) || 'Copie impossible';
     }
   });
   bubble.append(button);
