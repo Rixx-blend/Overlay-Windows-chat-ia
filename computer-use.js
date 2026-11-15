@@ -111,12 +111,26 @@ function createComputerUse({ getWindow, getCursorWindow }) {
     if (message.event === 'cursor') {
       const cursor = getCursorWindow && getCursorWindow();
       if (cursor && !cursor.isDestroyed()) {
-        const display = screen.getPrimaryDisplay();
-        const position = {
-          ...message,
-          x: Number(message.x || 0) / display.scaleFactor - display.bounds.x,
-          y: Number(message.y || 0) / display.scaleFactor - display.bounds.y,
-        };
+        const displays = screen.getAllDisplays();
+        const primary = screen.getPrimaryDisplay();
+        // Les coordonnées émises par Python sont des pixels physiques du bureau
+        // virtuel. Convertir avec l'échelle du moniteur réellement visé, pas celle
+        // de l'écran principal (sinon le curseur se bloque au bord sur l'écran 2).
+        const physical = displays.map((d) => ({
+          display: d,
+          left: Math.round(d.bounds.x * d.scaleFactor),
+          top: Math.round(d.bounds.y * d.scaleFactor),
+          right: Math.round((d.bounds.x + d.bounds.width) * d.scaleFactor),
+          bottom: Math.round((d.bounds.y + d.bounds.height) * d.scaleFactor),
+        }));
+        const px = Number(message.x || 0);
+        const py = Number(message.y || 0);
+        const target = physical.find((d) => px >= d.left && px < d.right && py >= d.top && py < d.bottom)
+          || physical.find((d) => d.display.id === primary.id) || physical[0];
+        const dipX = target.display.bounds.x + (px - target.left) / target.display.scaleFactor;
+        const dipY = target.display.bounds.y + (py - target.top) / target.display.scaleFactor;
+        const bounds = cursor.getBounds();
+        const position = { ...message, x: dipX - bounds.x, y: dipY - bounds.y };
         // The cursor overlay can finish loading after the Python agent starts.
         // Show it on demand and send the first position only after its page is ready.
         const publishPosition = () => {
