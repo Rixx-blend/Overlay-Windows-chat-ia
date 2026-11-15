@@ -222,7 +222,9 @@ def launch_app(name):
     script = (
         "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(); $OutputEncoding = [Console]::OutputEncoding; "
         "$ErrorActionPreference='Stop'; $n='" + escaped + "'; "
-        "$a=Get-StartApps | Where-Object { $_.Name -like ('*'+$n+'*') } | "
+        "if ($n -match '^(bloc[- ]?notes|notepad)$') { Start-Process notepad.exe; Write-Output 'Bloc-notes lancé directement' } "
+        "elseif ($n -match '^(calculatrice|calculator)$') { Start-Process calc.exe; Write-Output 'Calculatrice lancée directement' } "
+        "else { $a=Get-StartApps | Where-Object { $_.Name -like ('*'+$n+'*') } | "
         "Sort-Object @{Expression={if ($_.Name -ieq $n){0}elseif($_.Name -ilike ($n+'*')){1}else{2}}} | "
         "Select-Object -First 1; "
         "if ($a) { Start-Process explorer.exe -ArgumentList ('shell:AppsFolder\\'+$a.AppID); "
@@ -231,7 +233,7 @@ def launch_app(name):
         "if ($n -match 'blender') { $exe=Get-ChildItem -Path ($env:ProgramFiles+'\\Blender Foundation') -Recurse -Filter blender.exe -ErrorAction SilentlyContinue | Select-Object -First 1 }; "
         "if (-not $exe -and $n -match 'photoshop') { foreach ($root in @(($env:ProgramFiles+'\\Adobe'),(${env:ProgramFiles(x86)}+'\\Adobe'))) { $exe=Get-ChildItem -Path $root -Directory -Filter 'Adobe Photoshop*' -ErrorAction SilentlyContinue | ForEach-Object { Get-Item (Join-Path $_.FullName 'Photoshop.exe') -ErrorAction SilentlyContinue } | Select-Object -First 1; if ($exe) { break } } }; "
         "if ($exe) { Start-Process $exe.FullName; Write-Output ('Application lancée : '+$exe.FullName) } "
-        "else { $c=Get-Command ($n+'.exe') -ErrorAction SilentlyContinue; if ($c) { Start-Process $c.Source; Write-Output ('Application lancée : '+$c.Source) } else { throw ('Application introuvable : '+$n) } } }"
+        "else { $c=Get-Command ($n+'.exe') -ErrorAction SilentlyContinue; if ($c) { Start-Process $c.Source; Write-Output ('Application lancée : '+$c.Source) } else { throw ('Application introuvable : '+$n) } } } }"
     )
     result = subprocess.run(
         ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
