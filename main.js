@@ -134,10 +134,7 @@ function createWindow() {
     y: Math.round(workArea.y + workArea.height * 0.2),
     frame: false,
     transparent: true,
-    resizable: true,
-    minimizable: true,
-    maximizable: true,
-    closable: true,
+    resizable: false,
     skipTaskbar: false,
     alwaysOnTop: true,
     hasShadow: false,
@@ -161,16 +158,27 @@ function createWindow() {
     sendGeometry();
     win.webContents.send('visibility', win.isVisible());
     win.webContents.send('mode', liveGlass);
-    win.webContents.send('window-maximized', win.isMaximized());
   });
   win.on('move', sendGeometry);
-  win.on('maximize', () => win.webContents.send('window-maximized', true));
-  win.on('unmaximize', () => win.webContents.send('window-maximized', false));
   win.on('show', () => {
     sendGeometry();
     win.webContents.send('visibility', true);
   });
   win.on('hide', () => win.webContents.send('visibility', false));
+  // Fermer la fenêtre masque l'overlay sans tuer le processus :
+  // le raccourci ou un second lancement peut toujours le réafficher.
+  win.on('close', (event) => {
+    if (!app.isQuitting) {
+      event.preventDefault();
+      win.hide();
+    }
+  });
+  win.on('closed', () => {
+    win = null;
+    cardRect = null;
+    interactive = false;
+    hoverState = false;
+  });
 }
 
 // Curseur virtuel Computer Use : fenêtre transparente, plein écran et totalement non interactive.
@@ -1691,17 +1699,6 @@ ipcMain.on('focus-me', () => {
   if (win && !win.isDestroyed()) win.focus();
 });
 ipcMain.on('hide', () => win && win.hide());
-ipcMain.on('window-minimize', () => {
-  if (win && !win.isDestroyed()) win.minimize();
-});
-ipcMain.on('window-toggle-maximize', () => {
-  if (!win || win.isDestroyed()) return;
-  if (win.isMaximized()) win.unmaximize();
-  else win.maximize();
-});
-ipcMain.on('window-close', () => {
-  if (win && !win.isDestroyed()) win.close();
-});
 
 // Le renderer masque temporairement l'overlay des captures pour figer un fond propre
 ipcMain.handle('protect', (_e, on) => {
@@ -1711,10 +1708,12 @@ ipcMain.handle('protect', (_e, on) => {
 
 // ---------- Raccourcis ----------
 function toggleOverlay() {
-  if (!win) return;
+  if (!win || win.isDestroyed()) createWindow();
+  if (!win || win.isDestroyed()) return;
   if (win.isVisible()) {
     win.hide();
   } else {
+    if (win.isMinimized()) win.restore();
     win.show();
     win.focus();
     win.webContents.send('focus-input');
@@ -1808,12 +1807,25 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on('second-instance', () => {
+    if (!win || win.isDestroyed()) createWindow();
     if (!win || win.isDestroyed()) return;
+    if (win.isMinimized()) win.restore();
     win.show();
     win.focus();
     win.webContents.send('focus-input');
   });
 }
+
+app.on('activate', () => {
+  if (!win || win.isDestroyed()) createWindow();
+  if (win && !win.isDestroyed()) {
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+  }
+});
+
+app.on('before-quit', () => { app.isQuitting = true; });
 
 app.whenReady().then(() => {
   log(`démarrage v${app.getVersion()} (empaqueté=${app.isPackaged})`);
