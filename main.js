@@ -459,8 +459,8 @@ function shouldSearchWeb(query) {
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase().replace(/[^a-z0-9? ]/g, ' ').replace(/\s+/g, ' ').trim();
   if (!q || q.length < 5) return false;
-  if (/^(qui es tu|tu es qui|quel est ton nom|comment tu t appelles|what are you|who are you|are you chatgpt)[ ?!.]*$/.test(q)) return false;
-  const explicitWebIntent = /\b(cherche sur internet|recherche sur internet|fais une recherche|recherche web|sur le web|sur internet|sources fiables|cite tes sources|verifie sur internet|compare les sites|site officiel|trouve des sources)\b/.test(q);
+  if (/^(qui es tu|tu es qui|quel est ton nom|comment tu t appelles|what are you|who are you|are you chatgpt)(?:\\b|$)/.test(q)) return false;
+  const explicitWebIntent = /\b(cherche|recherche|trouve|fais une recherche|sur le web|sur internet|sources fiables|cite tes sources|verifie|compare les sites|site officiel)\b/.test(q);
   const freshnessIntent = /\b(aujourd hui|actuellement|en ce moment|recent|derniere version|nouveau|nouvelle version|actualite|actualites|2026|2025|prix actuel|tarif actuel|disponibilite|stock|meteo|cours de|taux de change)\b/.test(q);
   const lookupIntent = /\b(prix|tarif|achat|acheter|commander|avis|comparatif|meilleur|classement|sortie|date de sortie|programme|horaire|resultat|statistique|mise a jour)\b/.test(q);
   return explicitWebIntent || freshnessIntent || lookupIntent;
