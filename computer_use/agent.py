@@ -110,10 +110,11 @@ def main():
         step = 0
         while step < 30 and not stop_event.is_set():
             step += 1
-            emit("status", active=True, message="Observation " + str(step) + "/30")
+            emit("status", active=True, message="Analyse de l’écran — observation " + str(step) + "/30")
             shot = capture_screen(add_grid=os.environ.get("OVERLAYIA_COMPUTER_GRID") == "1")
             screenshots.append(shot["data_url"])
             screenshots = screenshots[-2:]
+            emit("history", item={"time": datetime.now(timezone.utc).isoformat(), "type": "observation", "detail": "Capture d’écran actualisée et transmise au modèle visuel pour examiner les éléments visibles."})
             decision = brain.decide(args.task, history, screenshots)
             action = decision.get("action")
             thought = str(decision.get("thought") or "").strip()[:400]
