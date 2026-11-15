@@ -50,22 +50,47 @@ class LocalVisionBrain:
         )
 
     def decide(self, task, history, screenshots):
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-        user_text = "Tâche utilisateur : " + task + "\n\nHistorique des actions :\n"
-        user_text += "\n".join(history[-24:]) if history else "(aucune action)"
-        content = [{"type": "text", "text": user_text}]
-        for image_data in screenshots[-2:]:
-            content.append({"type": "image_url", "image_url": {"url": image_data}})
-        messages.append({"role": "user", "content": content})
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            response_format={"type": "json_object"},
-            temperature=0.1,
-            max_tokens=450,
-        )
-        raw = response.choices[0].message.content or ""
-        result = json.loads(raw)
-        if not isinstance(result, dict) or not isinstance(result.get("action"), str):
-            raise ValueError("Le modèle a retourné une action JSON invalide.")
-        return result
+        # Keep the visual context compact: sending two full screenshots plus
+        # a long action history can exceed Ollama's default 4096-token window.
+        latest_screenshot = screenshots[-1:] if screenshots else []
+        compact_history = history[-8:]
+
+        def build_messages(action_history, image_list):
+            messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+            user_text = "Tâche utilisateur : " + task + "\\n\\nHistorique récent :\\n"
+            user_text += "\\n".join(action_history) if action_history else "(aucune action)"
+            content = [{"type": "text", "text": user_text}]
+            for image_data in image_list:
+                content.append({"type": "image_url", "image_url": {"url": image_data}})
+            messages.append({"role": "user", "content": content})
+            return messages
+
+        def request(messages):
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                response_format={"type": "json_object"},
+                temperature=0.1,
+                max_tokens=350,
+            )
+            raw = response.choices[0].message.content or ""
+            result = json.loads(raw)
+            if not isinstance(result, dict) or not isinstance(result.get("action"), str):
+                raise ValueError("Le modèle a retourné une action JSON invalide.")
+            return result
+
+        try:
+            return request(build_messages(compact_history, latest_screenshot))
+        except Exception as exc:
+            error_text = str(exc).casefold()
+            is_context_overflow = (
+                "exceeds the available context size" in error_text
+                or "context length" in error_text and "exceed" in error_text
+                or "context window" in error_text and "exceed" in error_text
+            )
+            if not is_context_overflow:
+                raise
+
+        # Last-resort retry: preserve the task and current screen, discard history.
+        # This avoids asking the user to restart the Computer Use session.
+        return request(build_messages([], latest_screenshot))
