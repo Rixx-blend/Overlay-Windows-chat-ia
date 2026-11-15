@@ -335,6 +335,12 @@ def launch_app(name):
     if is_blender and _find_window("Blender"):
         _wait_for_blender_ready()
         return "Fenêtre Blender existante réactivée ; chargement de l'interface attendu et focus vérifié."
+    if name == "Gestionnaire des tâches":
+        subprocess.Popen(["taskmgr.exe"], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        activated = _activate_app_window(name, timeout=12)
+        if activated:
+            return "Gestionnaire des tâches ouvert et fenêtre activée : " + activated
+        raise RuntimeError("taskmgr.exe a été lancé, mais sa fenêtre n'a pas pu être activée.")
     if name == "Paramètres Windows":
         # Ouvre directement la page À propos, qui contient édition, version et build.
         subprocess.Popen(["cmd.exe", "/c", "start", "", "ms-settings:about"],
