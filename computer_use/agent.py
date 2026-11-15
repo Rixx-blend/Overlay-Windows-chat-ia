@@ -103,8 +103,8 @@ def main():
     asks_streamlabs_recording = bool(re.search(r"streamlabs", args.task, re.IGNORECASE) and re.search(r"enregistr|record|capture d[’']écran|capture écran", args.task, re.IGNORECASE))
     streamlabs_launch_requested = False
     asks_windows_version = bool(
-        re.search(r"\\b(version|build)\\b", args.task, re.IGNORECASE)
-        and re.search(r"\\b(windows|param[eè]tres)\\b", args.task, re.IGNORECASE)
+        re.search(r"\b(version|build)\b", args.task, re.IGNORECASE)
+        and re.search(r"\b(windows|param[eè]tres)\b", args.task, re.IGNORECASE)
     )
     windows_settings_opened = False
     windows_version_retrieved = False
