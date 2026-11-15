@@ -118,22 +118,53 @@ def _app_title_aliases(name):
     return (str(name or "").strip(),)
 
 
+def _force_foreground(hwnd):
+    """Request foreground activation even when Python was started in the background."""
+    user32 = ctypes.windll.user32
+    kernel32 = ctypes.windll.kernel32
+    target_thread = user32.GetWindowThreadProcessId(hwnd, None)
+    current_thread = kernel32.GetCurrentThreadId()
+    attached = False
+    try:
+        if target_thread and target_thread != current_thread:
+            attached = bool(user32.AttachThreadInput(current_thread, target_thread, True))
+        user32.ShowWindow(hwnd, 9 if user32.IsIconic(hwnd) else 5)
+        user32.BringWindowToTop(hwnd)
+        user32.SetForegroundWindow(hwnd)
+        if attached:
+            user32.SetActiveWindow(hwnd)
+            user32.SetFocus(hwnd)
+        time.sleep(0.35)
+        return user32.GetForegroundWindow() == hwnd
+    finally:
+        if attached:
+            user32.AttachThreadInput(current_thread, target_thread, False)
+
+
 def _activate_app_window(name, timeout=15):
     aliases = _app_title_aliases(name)
     deadline = time.monotonic() + timeout
-    user32 = ctypes.windll.user32
     while time.monotonic() < deadline:
         for title in aliases:
             hwnd = _find_window(title)
-            if not hwnd:
-                continue
-            if user32.IsIconic(hwnd):
-                user32.ShowWindow(hwnd, 9)
-            user32.SetForegroundWindow(hwnd)
-            time.sleep(0.25)
-            if user32.GetForegroundWindow() == hwnd:
+            if hwnd and _force_foreground(hwnd):
                 return title
         time.sleep(0.25)
+    return None
+
+
+def get_app_window_center(name):
+    """Return the center of the requested app window in physical screen pixels."""
+    user32 = ctypes.windll.user32
+    for title in _app_title_aliases(name):
+        hwnd = _find_window(title)
+        if hwnd:
+            class RECT(ctypes.Structure):
+                _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long),
+                            ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
+            rect = RECT()
+            if user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+                return ((rect.left + rect.right) // 2, (rect.top + rect.bottom) // 2)
     return None
 
 
@@ -452,6 +483,8 @@ def execute(action, confirm, expected_app=None):
     if kind == "calculate":
         expression = str(action.get("expression") or "").strip()
         import re
+        # Tolère la ponctuation ajoutée par le modèle, sans accepter de calcul complexe.
+        expression = expression.rstrip(" =")
         match = re.fullmatch(r"(\d{1,12})\s*([+×xX*÷/−-])\s*(\d{1,12})", expression)
         if not match:
             raise ValueError("Calcul refusé : expression arithmétique simple attendue.")
