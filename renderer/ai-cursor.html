@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Curseur IA</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent;pointer-events:none}
+#cursor{position:absolute;left:0;top:0;width:28px;height:36px;opacity:0;transform:translate(-2px,-2px);transition:left 90ms cubic-bezier(.2,.8,.2,1),top 90ms cubic-bezier(.2,.8,.2,1),opacity 120ms ease;filter:drop-shadow(0 3px 5px rgba(0,0,0,.35))}
+#cursor.visible{opacity:1}
+#cursor svg{width:100%;height:100%;display:block}
+#cursor .pulse{position:absolute;width:34px;height:34px;left:9px;top:9px;border:1.5px solid rgba(125,92,255,.9);border-radius:50%;opacity:0;transform:scale(.45)}
+#cursor.click .pulse{animation:pulse 420ms ease-out}
+@keyframes pulse{0%{opacity:.85;transform:scale(.45)}100%{opacity:0;transform:scale(1.5)}}
+</style>
+</head>
+<body>
+<div id="cursor" aria-hidden="true">
+<svg viewBox="0 0 28 36" xmlns="http://www.w3.org/2000/svg">
+<path d="M3 2.5 24.5 21l-9.2.8-4.8 10.1L3 2.5Z" fill="#8B5CF6" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>
+<circle cx="4" cy="4" r="2" fill="#fff"/>
+</svg><span class="pulse"></span>
+</div>
+<script>
+const cursor=document.getElementById('cursor');
+let clickTimer;
+window.cursorApi={
+ move({x,y}){cursor.style.left=Math.max(0,Math.min(innerWidth,x))+'px';cursor.style.top=Math.max(0,Math.min(innerHeight,y))+'px';cursor.classList.add('visible');},
+ visible(value){cursor.classList.toggle('visible',!!value);},
+ click(){cursor.classList.remove('click');void cursor.offsetWidth;cursor.classList.add('click');clearTimeout(clickTimer);clickTimer=setTimeout(()=>cursor.classList.remove('click'),450);}
+};
+</script>
+</body>
+</html>
