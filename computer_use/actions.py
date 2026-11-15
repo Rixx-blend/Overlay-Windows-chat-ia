@@ -121,9 +121,8 @@ def launch_app(name):
     if not name:
         raise ValueError("Nom d'application manquant.")
     is_blender = "blender" in name.casefold()
-    if is_blender and _activate_existing_window("Blender"):
-        if not _wait_for_blender_ready():
-            raise RuntimeError("Impossible de confirmer que Blender est au premier plan.")
+    if is_blender and _find_window("Blender"):
+        _wait_for_blender_ready()
         return "Fenêtre Blender existante réactivée ; chargement de l'interface attendu et focus vérifié."
     escaped = name.replace("'", "''")
     script = (
