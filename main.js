@@ -177,6 +177,7 @@ function createCursorWindow() {
     skipTaskbar: true, alwaysOnTop: true, hasShadow: false, focusable: false,
     show: false,
     webPreferences: {
+      preload: path.join(__dirname, 'cursor-preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       backgroundThrottling: false,
