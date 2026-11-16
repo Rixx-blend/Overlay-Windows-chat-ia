@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Liquid Glass</title>
+  <style>
+    /* ---------- Liquid Glass : composant autonome (HTML + CSS + SVG, sans dépendance) ----------
+     * Verre réfractant : flou du fond, déformation des bords (feDisplacementMap),
+     * dispersion chromatique sur les bords, reflet en haut et bordure lumineuse.
+     * Barre -> carte : la largeur et l'arrondi glissent, sans toucher au contenu.
+     * Indicateur de réflexion : grille de pixels en vague, libellé qui scintille, temps écoulé.
+     * Réglage de la fluidité : --lg-speed (durée de la transition). */
+
+    :root {
+      --lg-tint: rgba(255, 255, 255, 0.18);
+      --lg-edge: rgba(255, 255, 255, 0.55);
+      --lg-ink: #111114;
+      --lg-muted: #8e8e93;
+      --lg-speed: 0.24s;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --lg-tint: rgba(20, 20, 24, 0.28);
+        --lg-edge: rgba(255, 255, 255, 0.22);
+        --lg-ink: #f2f2f7;
+        --lg-muted: #8e8e93;
+      }
+    }
+    :root[data-theme="dark"] {
+      --lg-tint: rgba(20, 20, 24, 0.28);
+      --lg-edge: rgba(255, 255, 255, 0.22);
+      --lg-ink: #f2f2f7;
+      --lg-muted: #8e8e93;
+    }
+
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background: linear-gradient(135deg, #ffb199, #8fd3f4 45%, #c4a7ff);
+      font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+      color: var(--lg-ink);
+    }
+    body { display: grid; place-items: center; min-height: 100vh; padding: 24px; }
+
+    .glass {
+      position: relative;
+      width: 420px;
+      max-width: 100%;
+      min-height: 56px;
+      padding: 10px 12px 10px 20px;
+      border-radius: 999px;
+      background: var(--lg-tint);
+      -webkit-backdrop-filter: blur(14px) saturate(160%) url(#lg-refract);
+      backdrop-filter: blur(14px) saturate(160%) url(#lg-refract);
+      border: 1px solid var(--lg-edge);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.6),
+        inset 0 -1px 0 rgba(255, 255, 255, 0.15),
+        0 14px 36px rgba(20, 10, 40, 0.22);
+      transition:
+        width var(--lg-speed) cubic-bezier(0.2, 0.8, 0.2, 1),
+        border-radius var(--lg-speed) cubic-bezier(0.2, 0.8, 0.2, 1),
+        padding var(--lg-speed) cubic-bezier(0.2, 0.8, 0.2, 1);
+      overflow: hidden;
+    }
+    /* Reflet lumineux en haut de la carte */
+    .glass::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      pointer-events: none;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0) 45%);
+      opacity: 0.8;
+    }
+    .glass.open { border-radius: 28px; padding: 16px 16px 14px 20px; }
+
+    .row { position: relative; display: flex; align-items: center; gap: 10px; min-height: 36px; }
+    .glass input {
+      flex: 1;
+      min-width: 0;
+      border: 0;
+      outline: 0;
+      background: transparent;
+      font: inherit;
+      font-size: 15px;
+      color: var(--lg-ink);
+    }
+    .glass input::placeholder { color: var(--lg-muted); }
+
+    .btn {
+      flex: none;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      border: 1px solid var(--lg-edge);
+      background: rgba(255, 255, 255, 0.35);
+      color: var(--lg-ink);
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      transition: transform 0.15s ease;
+    }
+    .btn:hover { transform: scale(1.06); }
+    .btn:active { transform: scale(0.94); }
+    .btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+    .content { display: none; margin-top: 12px; font-size: 14px; line-height: 1.5; }
+    .glass.open .content { display: block; }
+
+    /* ---------- Indicateur de réflexion ---------- */
+    .thinking { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 500; }
+    .px-grid { display: grid; grid-template-columns: repeat(3, 4px); gap: 1.5px; flex: none; }
+    .px-grid span {
+      width: 4px; height: 4px; border-radius: 1px;
+      background: var(--lg-ink);
+      opacity: 0.15;
+      animation: lg-pixel 650ms ease-in-out infinite;
+    }
+    @keyframes lg-pixel { 0%, 100% { opacity: 0.15; } 50% { opacity: 0.95; } }
+    .shimmer {
+      background-image: linear-gradient(90deg, var(--lg-muted) 35%, var(--lg-ink) 50%, var(--lg-muted) 65%);
+      background-size: 200% 100%;
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      animation: lg-shimmer 1.4s linear infinite;
+    }
+    @keyframes lg-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+    .timer { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 12px; color: var(--lg-muted); font-variant-numeric: tabular-nums; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .glass, .btn { transition: none; }
+      .px-grid span, .shimmer { animation: none; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Filtre SVG : réfraction du fond sur les bords + dispersion chromatique -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <filter id="lg-refract" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+        <feTurbulence type="fractalNoise" baseFrequency="0.012" numOctaves="2" seed="7" result="noise"/>
+        <feDisplacementMap in="SourceGraphic" in2="noise" scale="14" xChannelSelector="R" yChannelSelector="G" result="warp"/>
+        <feColorMatrix in="warp" type="matrix"
+          values="1 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0" result="red"/>
+        <feOffset in="red" dx="1.2" dy="0" result="redOff"/>
+        <feComposite in="warp" in2="redOff" operator="over"/>
+      </filter>
+    </defs>
+  </svg>
+
+  <div class="glass" id="glass">
+    <div class="row">
+      <input id="input" placeholder="Demander n'importe quoi..." autocomplete="off">
+      <button class="btn" id="send" title="Envoyer" aria-label="Envoyer">
+        <svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+      </button>
+    </div>
+    <div class="content" id="content"></div>
+  </div>
+
+  <script>
+    // Démo : la barre s'ouvre à la saisie, l'indicateur tourne pendant une réponse factice.
+    const glass = document.getElementById('glass');
+    const input = document.getElementById('input');
+    const content = document.getElementById('content');
+    const send = document.getElementById('send');
+
+    // Indicateur de réflexion : même logique que la version de l'overlay
+    function makeLoader(label) {
+      const wrap = document.createElement('div');
+      wrap.className = 'thinking';
+      const grid = document.createElement('span');
+      grid.className = 'px-grid';
+      for (let i = 0; i < 9; i++) {
+        const r = Math.floor(i / 3);
+        const c = i % 3;
+        const cell = document.createElement('span');
+        cell.style.animationDelay = (c + Math.abs(r - 1)) * 90 + 'ms';
+        grid.appendChild(cell);
+      }
+      const text = document.createElement('span');
+      text.className = 'shimmer';
+      text.textContent = label;
+      const time = document.createElement('span');
+      time.className = 'timer';
+      const t0 = performance.now();
+      const tick = setInterval(() => {
+        const s = (performance.now() - t0) / 1000;
+        time.textContent = s < 60 ? s.toFixed(1) + 's' : `${Math.floor(s / 60)}m ${(s % 60).toFixed(1)}s`;
+      }, 100);
+      wrap.append(grid, text, time);
+      return { el: wrap, stop: () => clearInterval(tick) };
+    }
+
+    function open() { glass.classList.add('open'); }
+
+    input.addEventListener('focus', open);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+    send.addEventListener('click', submit);
+
+    function submit() {
+      const text = input.value.trim();
+      if (!text) return;
+      open();
+      input.value = '';
+      content.replaceChildren();
+      const loader = makeLoader('Réflexion');
+      content.appendChild(loader.el);
+      // Démo : remplacer ce délai par l'appel réel à ton modèle
+      setTimeout(() => {
+        loader.stop();
+        content.textContent = 'Réponse de démonstration à : « ' + text + ' »';
+      }, 2000);
+    }
+  </script>
+</body>
+</html>
