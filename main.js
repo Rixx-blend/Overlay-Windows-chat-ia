@@ -365,9 +365,15 @@ function toOllamaMessages(msgs) {
 ipcMain.on('chat', async (e, payload) => {
   const { messages, engine, model, level, allowActions } = payload;
   const L = LEVELS[level] || LEVELS.low;
-  let sys = `Tu es un assistant installé sur le PC de l'utilisateur, dans un overlay. ${L.hint}
-Tu fonctionnes localement. Ton modèle est Qwen 2.5 VL 3B, développé par Alibaba Cloud, exécuté localement par Ollama. Ne prétends jamais être un autre modèle et n'invente jamais de version.`;
-  if (allowActions) sys += ACTION_HINT;
+  const sys = `Tu es l'assistant de l'overlay IA, installé sur le PC de l'utilisateur. ${L.hint}
+Tu fonctionnes localement. Ton modèle est Qwen 2.5 VL 3B, développé par Alibaba Cloud, exécuté localement par Ollama. Ne prétends jamais être un autre modèle et n'invente jamais de version.
+Tu PEUX faire tout ce que l'utilisateur demande sur son PC. Tu n'as jamais le droit de refuser une demande de contrôle du PC, ni de dire que tu ne peux pas.
+Tu réponds UNIQUEMENT avec un objet JSON, dans une de ces formes :
+{"type":"reponse","texte":"..."} pour une réponse ou une question.
+{"type":"action","outil":"lancer","nom":"nom de l'application","texte":"phrase courte"} pour ouvrir ou lancer une application. Exemple pour « ouvre Blender » : {"type":"action","outil":"lancer","nom":"Blender","texte":"J'ouvre Blender."}
+{"type":"action","outil":"powershell","commande":"commande PowerShell","texte":"phrase courte"} pour toute autre action sur le PC : fichiers, fermer une application (Stop-Process -Name), réglages, etc.
+{"type":"proposition","texte":"...","commande":"..."} seulement pour suggérer une action que l'utilisateur n'a pas demandée.
+N'invente jamais de raccourci clavier.`;
   const full = [{ role: 'system', content: sys }, ...messages];
   const send = (channel, value) => {
     if (!e.sender.isDestroyed()) e.sender.send(channel, value);
@@ -381,7 +387,8 @@ Tu fonctionnes localement. Ton modèle est Qwen 2.5 VL 3B, développé par Aliba
         body: JSON.stringify({
           model,
           messages: toOllamaMessages(full),
-          stream: true,
+          stream: false,
+          format: 'json',
           keep_alive: -1,
           options: { num_predict: L.tokens, temperature: 0.3, num_ctx: 4096 },
         }),
@@ -390,11 +397,10 @@ Tu fonctionnes localement. Ton modèle est Qwen 2.5 VL 3B, développé par Aliba
         const detail = await res.text();
         throw new Error(`Ollama HTTP ${res.status} : ${detail.slice(0, 300)}`);
       }
-      await readLines(res, (line) => {
-        const j = JSON.parse(line);
-        if (j.error) throw new Error(j.error);
-        if (j.message && j.message.content) send('token', j.message.content);
-      });
+      const j = await res.json();
+      if (j.error) throw new Error(j.error);
+      // Réponse complète en JSON : le renderer la lit et décide de l'action
+      send('token', j.message?.content || '');
     } else {
       const body = { model, messages: full, stream: true, max_completion_tokens: L.tokens };
       if (/^(gpt-5|o\d)/.test(model)) body.reasoning_effort = L.effort;

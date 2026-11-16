@@ -274,18 +274,6 @@ function submit() {
   const text = input.value.trim();
   if (busy || (!text && !pending.length)) return;
   lastAsk = text;
-  // « ouvre X » : ouverture directe, sans passer par le modèle
-  const lancer = text.match(LAUNCH_RE);
-  if (lancer && !pending.length) {
-    input.value = '';
-    addBubble('user', text);
-    messages.push({ role: 'user', content: text });
-    bridge.launchApp(lancer[2]).then((r) => {
-      addBubble('sys', r.out);
-      messages.push({ role: 'user', content: `Résultat : ${r.out}` });
-    });
-    return;
-  }
   const atts = pending.slice();
   const content = buildContent(text);
   addBubble('user', text, atts);
@@ -364,18 +352,48 @@ bridge.onDone((err) => {
     current.classList.add('err');
     current.textContent = 'Erreur : ' + err;
   } else {
-    const m = aiText.match(ACTION_RE);
-    const shown = aiText.replace(ACTION_RE, '').trim();
-    current.textContent = shown || (m ? '' : '(réponse vide)');
-    messages.push({ role: 'assistant', content: aiText });
-    if (m && settings.allowActions) proposeAction(m[1]);
+    // Le modèle répond en JSON : une réponse, une action (exécutée) ou une proposition (à valider)
+    const d = parseDecision(aiText);
+    const texte = String(d.texte || '').trim();
+    current.textContent = texte || (d.type === 'reponse' ? aiText.trim() || '(réponse vide)' : '');
+    messages.push({ role: 'assistant', content: texte || aiText });
+    applyDecision(d);
   }
   current = null;
   chat.scrollTop = chat.scrollHeight;
   scheduleClose();
 });
 
-// Exécute une commande sans demander (quand l'utilisateur l'a demandée lui-même)
+function parseDecision(raw) {
+  const m = String(raw).match(/\{[\s\S]*\}/);
+  try {
+    return JSON.parse(m ? m[0] : raw);
+  } catch {
+    return { type: 'reponse', texte: String(raw) };
+  }
+}
+
+// Action demandée : exécutée directement. Proposition : affichée, à valider.
+function applyDecision(d) {
+  if (d.type === 'action') {
+    if (!settings.allowActions) {
+      addBubble('sys', 'Les actions sur le PC sont désactivées dans les paramètres.');
+      return;
+    }
+    if (d.outil === 'lancer') {
+      bridge.launchApp(String(d.nom || '')).then((r) => {
+        addBubble('sys', r.out);
+        messages.push({ role: 'user', content: `Résultat : ${r.out}` });
+      });
+    } else if (d.outil === 'powershell' && d.commande) {
+      runCmd(String(d.commande));
+    }
+  } else if (d.type === 'proposition' && d.commande) {
+    proposeAction(JSON.stringify({ command: d.commande }));
+  }
+}
+
+// Exécute une commande PowerShell
 async function runCmd(cmd) {
   const r = await bridge.runCommand(cmd);
   addBubble('sys', (r.ok ? 'Résultat :\n' : 'Échec :\n') + r.out);
@@ -390,10 +408,6 @@ function proposeAction(raw) {
     cmd = String(JSON.parse(raw.trim()).command || '');
   } catch {
     addBubble('sys', 'Commande illisible.');
-    return;
-  }
-  if (ASK_ACTION_RE.test(lastAsk)) {
-    runCmd(cmd);
     return;
   }
   if (!cmd) return;
