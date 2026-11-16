@@ -94,11 +94,11 @@ function canClose() {
   );
 }
 
+// La carte reste déployée une fois ouverte : sortir le curseur ou cliquer à côté ne la replie plus,
+// ce qui gardait les options (modèle, niveau de réflexion, pièces jointes) cachées.
+// Elle ne se replie que avec Échap, quand la conversation est vide.
 function scheduleClose() {
   clearTimeout(closeTimer);
-  closeTimer = setTimeout(() => {
-    if (canClose()) setOpen(false);
-  }, 300);
 }
 
 // Le processus principal indique si le curseur est sur la carte
